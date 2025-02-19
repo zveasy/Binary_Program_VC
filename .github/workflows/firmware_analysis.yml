@@ -1,18 +1,13 @@
 name: Firmware Analysis Pipeline
 
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - "firmware/*.bin"  # Trigger only when firmware files are updated
+on: [push]
 
 jobs:
   analyze_firmware:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
       - name: Set up Python
@@ -20,22 +15,16 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: Run Disassembler
+      - name: Run Firmware Analysis
         run: |
-          python rda_disassembler_enhanced.py firmware/latest_firmware.bin > output.log
+          python3 rda_disassembler_enhanced.py firmware/latest_firmware.bin
 
-      - name: Upload Analysis Report
+      - name: Upload Disassembly Log
         uses: actions/upload-artifact@v3
         with:
-          name: firmware-analysis-report
-          path: output.log
-
-      - name: Notify Team (Slack / Email)
-        if: always()
-        run: |
-          echo "Firmware analysis completed. Check output.log"
-
+          name: disassembly-log
+          path: firmware/disassembly.log

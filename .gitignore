@@ -1,0 +1,21 @@
+echo "
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environments
+venv/
+.env/
+base/
+
+# Ignore compiled binaries
+firmware/latest_firmware.bin
+
+# Ignore Docker-related files
+*.log
+*.db
+__pycache__/
+*.sqlite3
+" > .gitignore

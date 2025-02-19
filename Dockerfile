@@ -1,21 +1,28 @@
-# Use an official Python runtime as a base image
 FROM python:3.9-slim
 
 # Set the working directory inside the container
 WORKDIR /app
 
-# Install system dependencies required for building Capstone
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     gcc \
+    libc6-dev \
+    make \
+    python3-dev \
     libcapstone-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy all files from the current directory to the container
+# Copy the application files
 COPY . .
 
-# Install required Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies, ensuring python-multipart is included
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install fastapi uvicorn python-multipart  # ✅ Explicitly install python-multipart
 
-# Set the default command to run the disassembler script
-CMD ["python", "rda_disassembler_enhanced.py"]
+# Expose API port
+EXPOSE 8000
+
+# Start the FastAPI server
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
