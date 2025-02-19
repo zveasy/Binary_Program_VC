@@ -21,6 +21,25 @@ from elftools.elf.elffile import ELFFile
 from elftools.elf.constants import SH_FLAGS
 from capstone import *
 from elftools.elf.enums import ENUM_E_MACHINE  # Import ELF machine codes
+import os
+
+# Define the log file path
+log_path = "firmware/disassembly.log"
+
+# Ensure the firmware directory exists
+os.makedirs("firmware", exist_ok=True)
+
+# Initialize log file
+with open(log_path, "w") as log_file:
+    log_file.write("[INFO] Disassembly log initialized.\n")
+
+def log_message(message):
+    """Helper function to write logs to the disassembly file."""
+    with open(log_path, "a") as log_file:
+        log_file.write(message + "\n")
+
+# Example usage
+log_message("[INFO] Script started.")
 
 # Heuristic constants
 MAX_INVALID_THRESHOLD = 8       # number of consecutive invalid instructions to treat as data
@@ -263,6 +282,77 @@ def recursive_descent_disassemble(
     return insn_map
 
 def main():
+    if len(sys.argv) < 2:
+        log_message("[ERROR] Usage: python comprehensive_disassembler.py <firmware.elf>")
+        print("Usage: python comprehensive_disassembler.py <firmware.elf>")
+        sys.exit(1)
+
+    filename = sys.argv[1]
+
+    if not os.path.exists(filename):
+        log_message(f"[ERROR] File not found: {filename}")
+        print(f"[ERROR] File not found: {filename}")
+        sys.exit(1)
+
+    log_message(f"[INFO] Processing file: {filename}")
+
+    with open(filename, 'rb') as f:
+        elffile = ELFFile(f)
+
+        try:
+            (arch, mode, ptr_size) = detect_arch(elffile)
+            log_message(f"[INFO] Detected architecture: {arch}, Mode: {mode}")
+        except ValueError as ve:
+            log_message(f"[ERROR] {ve}")
+            print(f"[!] {ve}")
+            sys.exit(1)
+        
+        md = Cs(arch, mode)
+        md.detail = True
+
+        exec_sections = load_executable_sections(elffile)
+        if not exec_sections:
+            log_message("[ERROR] No executable sections found.")
+            print("[!] No executable sections found.")
+            sys.exit(0)
+        
+        log_message("[INFO] Executable sections found. Starting disassembly.")
+
+        symbol_map = gather_symbols(elffile)
+        reloc_addrs = gather_relocations(elffile)
+
+        code_sections_info = [(sname, base_addr, size) for (sname, _, base_addr, size) in exec_sections]
+
+        global_insn_map = {}
+
+        for (sname, data, base_addr, size) in exec_sections:
+            log_message(f"[INFO] Disassembling section '{sname}' at 0x{base_addr:x} (size={size} bytes).")
+            print(f"\n[+] Disassembling section '{sname}' at 0x{base_addr:x}, size={size} bytes.")
+
+            visited_offsets = set()
+            to_visit = [0]
+            section_insn_map = recursive_descent_disassemble(
+                md, data, base_addr, size,
+                code_sections_info, symbol_map, reloc_addrs, ptr_size,
+                visited_offsets, to_visit
+            )
+            global_insn_map.update(section_insn_map)
+
+        sorted_insns = sorted(global_insn_map.items(), key=lambda x: x[0])
+        
+        log_message("[INFO] Final disassembly results:")
+        print("\n=== Final Disassembly (All Sections) ===")
+        for addr, (mn, op) in sorted_insns:
+            sym_hint = ""
+            if addr in symbol_map:
+                sym_name, _ = symbol_map[addr]
+                sym_hint = f"<{sym_name}> "
+            line = f"0x{addr:08x}:  {sym_hint}{mn:6s} {op}"
+            print(line)
+            log_message(line)
+
+    log_message("[INFO] Disassembly completed successfully.")
+
     if len(sys.argv) < 2:
         print("Usage: python comprehensive_disassembler.py <firmware.elf>")
         sys.exit(1)
