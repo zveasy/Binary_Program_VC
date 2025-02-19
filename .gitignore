@@ -10,8 +10,9 @@ venv/
 .env/
 base/
 
-# Ignore compiled binaries
-firmware/latest_firmware.bin
+# Ignore compiled binaries except latest_firmware.bin
+firmware/*
+!firmware/latest_firmware.bin
 
 # Ignore Docker-related files
 *.log
