@@ -24,7 +24,7 @@ jobs:
           python3 rda_disassembler_enhanced.py firmware/latest_firmware.bin
 
       - name: Upload Disassembly Log
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: disassembly-log
           path: firmware/disassembly.log
