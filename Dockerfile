@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     make \
     python3-dev \
     libcapstone-dev \
+    binutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the application files

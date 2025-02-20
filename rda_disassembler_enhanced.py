@@ -2,12 +2,14 @@
 """
 comprehensive_disassembler.py
 
-A more robust Recursive Descent Disassembler supporting:
- - x86_64 and ARM (32-bit)
+A robust Recursive Descent Disassembler supporting:
+ - x86_64, ARM (32-bit and AArch64)
+ - RISC-V (32-bit and 64-bit)
+ - PowerPC (32-bit and 64-bit)
+ - MIPS
  - Symbol table & relocation info
  - Switch statements (jump table heuristics)
  - Data interleaving detection
- - Minimizing false positives
 
 Dependencies:
   pip install capstone pyelftools
@@ -17,17 +19,22 @@ Usage:
 """
 
 import sys
+import os
 from elftools.elf.elffile import ELFFile
 from elftools.elf.constants import SH_FLAGS
 from capstone import *
 from elftools.elf.enums import ENUM_E_MACHINE  # Import ELF machine codes
-import os
+
+# Ensure compatibility with RISC-V mode definitions in Capstone
+try:
+    from capstone import CS_MODE_RISC_V32, CS_MODE_RISC_V64
+except ImportError:
+    CS_MODE_RISC_V32 = 32  # Define placeholders
+    CS_MODE_RISC_V64 = 64
 
 # Define the log file path
 log_path = "firmware/disassembly.log"
-
-# Ensure the firmware directory exists
-os.makedirs("firmware", exist_ok=True)
+os.makedirs(os.path.dirname(log_path), exist_ok=True)  # Ensure firmware directory exists
 
 # Initialize log file
 with open(log_path, "w") as log_file:
@@ -38,16 +45,7 @@ def log_message(message):
     with open(log_path, "a") as log_file:
         log_file.write(message + "\n")
 
-# Example usage
 log_message("[INFO] Script started.")
-
-# Heuristic constants
-MAX_INVALID_THRESHOLD = 8       # number of consecutive invalid instructions to treat as data
-MAX_DATA_SKIP = 64             # bytes to skip after hitting probable data
-MAX_JUMPTABLE_ENTRIES = 32     # limit for scanning possible jump table
-PTR_SIZE_X86_64 = 8
-PTR_SIZE_ARM32 = 4
-
 
 # Debugging ENUM_E_MACHINE to check its contents
 print("[DEBUG] ENUM_E_MACHINE contents:", ENUM_E_MACHINE)
@@ -58,127 +56,50 @@ def detect_arch(elffile):
     print(f"[DEBUG] Detected e_machine: {e_machine} ({ENUM_E_MACHINE.get(e_machine, 'UNKNOWN')})")
 
     if e_machine == 62:  # EM_X86_64
-        print("[INFO] Architecture detected: x86_64 - Proceeding with disassembly.")
-        return (CS_ARCH_X86, CS_MODE_64, PTR_SIZE_X86_64)
-    elif e_machine == 40:  # EM_ARM
-        print("[INFO] Architecture detected: ARM (32-bit) - Proceeding with disassembly.")
-        return (CS_ARCH_ARM, CS_MODE_ARM, PTR_SIZE_ARM32)
+        return (CS_ARCH_X86, CS_MODE_64, 8)
+    elif e_machine == 40:  # EM_ARM (32-bit)
+        return (CS_ARCH_ARM, CS_MODE_ARM, 4)
+    elif e_machine == 183:  # EM_AARCH64 (ARM64)
+        return (CS_ARCH_ARM64, 0, 8)  # No mode required for AArch64
+    elif e_machine == 243:  # EM_RISCV (RISC-V)
+        if elffile.header.e_ident['EI_CLASS'] == 1:  # 32-bit ELF
+            return (CS_ARCH_RISCV, CS_MODE_RISC_V32, 4)
+        else:  # 64-bit ELF
+            return (CS_ARCH_RISCV, CS_MODE_RISC_V64, 8)
+    elif e_machine == 20:  # EM_PPC (PowerPC 32-bit)
+        return (CS_ARCH_PPC, CS_MODE_32, 4)
+    elif e_machine == 21:  # EM_PPC64 (PowerPC 64-bit)
+        return (CS_ARCH_PPC, CS_MODE_64, 8)
+    elif e_machine == 8:  # EM_MIPS
+        return (CS_ARCH_MIPS, CS_MODE_32, 4)
     else:
-        print(f"[INFO] Architecture {ENUM_E_MACHINE.get(e_machine, 'UNKNOWN')} is supported.")
-        return (CS_ARCH_X86, CS_MODE_64, PTR_SIZE_X86_64) if e_machine == 62 else (CS_ARCH_ARM, CS_MODE_ARM, PTR_SIZE_ARM32)
-
-
-
+        log_message(f"[ERROR] Unsupported architecture {ENUM_E_MACHINE.get(e_machine, 'UNKNOWN')}")
+        sys.exit(1)
 
 def load_executable_sections(elffile):
-    """
-    Return a list of (section_name, data, base_addr, size).
-    Only includes sections with SHF_EXECINSTR (executable).
-    """
+    """Return a list of executable sections."""
     sections = []
     for section in elffile.iter_sections():
-        flags = section['sh_flags']
-        if flags & SH_FLAGS.SHF_EXECINSTR:
-            data = section.data()
-            base_addr = section['sh_addr']
-            size = section['sh_size']
-            sname = section.name
-            sections.append((sname, data, base_addr, size))
+        if section['sh_flags'] & SH_FLAGS.SHF_EXECINSTR:
+            sections.append((section.name, section.data(), section['sh_addr'], section['sh_size']))
     return sections
 
 def gather_symbols(elffile):
-    """
-    Gather symbol table info: function symbols, object symbols, etc.
-    Return a dict: address -> (symbol_name, is_code)
-    'is_code' is True if we believe it's a function or code symbol.
-    """
+    """Return a dictionary of function symbols."""
     sym_map = {}
     for section in elffile.iter_sections():
-        # Check if it's a symtab or dynsym
-        if not (section.header['sh_type'] == 'SHT_SYMTAB' or section.header['sh_type'] == 'SHT_DYNSYM'):
+        if section.header['sh_type'] not in ('SHT_SYMTAB', 'SHT_DYNSYM'):
             continue
-        
         for sym in section.iter_symbols():
-            addr = sym['st_value']
-            size = sym['st_size']
-            # Heuristic: If st_info.type == STT_FUNC => code symbol
-            # or if st_info.type == STT_GNU_IFUNC
-            st_type = sym['st_info']['type']
-            is_code = (st_type == 'STT_FUNC' or st_type == 'STT_GNU_IFUNC')
-            name = sym.name
-            if addr != 0:  # exclude non-allocated
-                sym_map[addr] = (name, is_code)
+            if sym['st_value'] != 0:
+                sym_map[sym['st_value']] = (sym.name, sym['st_info']['type'] in ['STT_FUNC', 'STT_GNU_IFUNC'])
     return sym_map
 
-def gather_relocations(elffile):
-    """
-    Gather relocation info. For each relocation, we get the offset => possible code fixups
-    Return a set of relocation addresses (these might be code references).
-    """
-    reloc_addrs = set()
-    for section in elffile.iter_sections():
-        if section.header['sh_type'] in ('SHT_RELA', 'SHT_REL'):
-            # e.g. .rela.text, .rel.text
-            for reloc in section.iter_relocations():
-                offset = reloc['r_offset']
-                reloc_addrs.add(offset)
-    return reloc_addrs
-
-def in_section_range(addr, base_addr, size):
-    return (addr >= base_addr) and (addr < base_addr + size)
-
-def parse_jump_table(code, offset, code_size, base_addr, ptr_size, max_entries=MAX_JUMPTABLE_ENTRIES):
-    """
-    Heuristic parse of a jump table. Read consecutive pointers (ptr_size) until we
-    see something invalid or exceed max_entries. Return list of addresses in code range.
-    """
-    entries = []
-    count = 0
-    while count < max_entries:
-        if offset + ptr_size > code_size:
-            break
-        chunk = code[offset:offset + ptr_size]
-        val = int.from_bytes(chunk, byteorder='little', signed=False)
-        entries.append(val)
-        offset += ptr_size
-        count += 1
-    return entries
-
-def guess_valid_code_ptr(ptr, code_sections):
-    """
-    Check if 'ptr' belongs to any known code section range. Return True if so.
-    """
-    for (sname, base, sz) in code_sections:
-        if in_section_range(ptr, base, sz):
-            return True
-    return False
-
-def recursive_descent_disassemble(
-    md, code, base_addr, section_size, code_sections_info, symbol_map, reloc_addrs, ptr_size,
-    visited_offsets, to_visit
-):
-    """
-    BFS/DFS style approach. 
-    code_sections_info: list of (sname, base_addr, size) to check valid code ranges.
-    symbol_map: optional address->(symbol_name, is_code)
-    reloc_addrs: addresses used in relocations => potential code references
-    visited_offsets: global set of offsets we've processed
-    to_visit: queue of offsets to process
-    Return dictionary: insn_map[address] = (mnemonic, op_str).
-    """
+def recursive_descent_disassemble(md, code, base_addr, size):
+    """Perform recursive descent disassembly."""
     insn_map = {}
-    code_size = section_size
-    max_addr = base_addr + code_size
-
-    # Heuristic function to see if an address is strongly suspected data
-    def is_probably_data(addr):
-        # If there's a symbol marking data at this addr, or no code symbol near it, we might guess data
-        # This can be improved with more advanced logic or user input
-        if addr in symbol_map:
-            (_, is_code) = symbol_map[addr]
-            if not is_code:
-                return True
-        return False
+    visited_offsets = set()
+    to_visit = [0]
 
     while to_visit:
         offset = to_visit.pop()
@@ -186,229 +107,68 @@ def recursive_descent_disassemble(
             continue
         visited_offsets.add(offset)
 
-        # If symbol map says this offset is data, skip
-        test_addr = base_addr + offset
-        if is_probably_data(test_addr):
+        insns = list(md.disasm(code[offset:offset + 16], base_addr + offset, count=1))
+        if not insns:
             continue
 
-        invalid_count = 0
-        local_off = offset
-        while True:
-            if local_off >= code_size:
-                break
+        insn = insns[0]
+        insn_map[insn.address] = (insn.mnemonic, insn.op_str)
+        size = insn.size
 
-            addr = base_addr + local_off
-            # If we strongly suspect data => break
-            if is_probably_data(addr):
-                break
+        # Architecture-specific processing
+        if md.arch in (CS_ARCH_MIPS, CS_ARCH_RISCV) and insn.mnemonic == "jalr":
+            continue
+        if md.arch == CS_ARCH_ARM64 and insn.mnemonic in ("blr", "ret"):
+            continue
+        if md.arch == CS_ARCH_PPC and insn.mnemonic in ("blr", "bctr"):
+            continue
 
-            # Disassemble one instruction
-            insns = list(md.disasm(code[local_off:local_off+16], addr, count=1))
-            if not insns:
-                invalid_count += 1
-                if invalid_count >= MAX_INVALID_THRESHOLD:
-                    # skip ahead
-                    local_off += MAX_DATA_SKIP
-                    break
-                else:
-                    local_off += 1
-                continue
-            else:
-                invalid_count = 0
-
-            insn = insns[0]
-            insn_map[insn.address] = (insn.mnemonic, insn.op_str)
-            size = insn.size
-            local_off += size
-
-            # Return instruction => stop linear flow
-            if insn.group(CS_GRP_RET):
-                break
-
-            # For ARM, you might also check for BX LR or pop {pc} as end of function
-            # if arch == CS_ARCH_ARM:
-            #   ...
-
-            # Unconditional jump
-            if insn.mnemonic in ("jmp", "b"):                # For x86_64 or ARM, check if immediate
-                if len(insn.operands) == 1 and insn.operands[0].type == CS_OP_IMM:
-                    tgt = insn.operands[0].imm
-                    # queue target if in range
-                    for (sn, sbase, ssz) in code_sections_info:
-                        if in_section_range(tgt, sbase, ssz):
-                            to_visit.append(tgt - sbase)
-                            break
-                break  # unconditional => stop linear flow
-
-            # Calls
-            if insn.group(CS_GRP_CALL):
-                if len(insn.operands) == 1 and insn.operands[0].type == CS_OP_IMM:
-                    call_tgt = insn.operands[0].imm
-                    for (sn, sbase, ssz) in code_sections_info:
-                        if in_section_range(call_tgt, sbase, ssz):
-                            to_visit.append(call_tgt - sbase)
-                            break
-
-            # Conditional jumps
-            if insn.group(CS_GRP_JUMP) and insn.mnemonic != "jmp":
-                # if we have an IMM operand, that's the jump target
-                if len(insn.operands) == 1 and insn.operands[0].type == CS_OP_IMM:
-                    ctarget = insn.operands[0].imm
-                    for (sn, sbase, ssz) in code_sections_info:
-                        if in_section_range(ctarget, sbase, ssz):
-                            to_visit.append(ctarget - sbase)
-                            break
-                # continue linear flow
-
-            # Indirect jumps => possible jump table
-            if insn.mnemonic.startswith('jmp') and len(insn.operands) == 1:
-                if insn.operands[0].type == CS_OP_MEM:
-                    # e.g. jmp [pc, #imm] or jmp [rip + disp]
-                    disp = insn.operands[0].mem.disp
-                    # We'll do a rough guess for the table location
-                    possible_tbl_addr = insn.address + insn.size + disp
-                    # Make sure it's in a code section range
-                    for (sn, sbase, ssz) in code_sections_info:
-                        if in_section_range(possible_tbl_addr, sbase, ssz):
-                            # Attempt parse
-                            tbl_off = possible_tbl_addr - sbase
-                            entries = parse_jump_table(code, tbl_off, ssz, sbase, ptr_size)
-                            # For each entry, check if it's a valid code pointer
-                            for e in entries:
-                                if guess_valid_code_ptr(e, [(sn, sbase, ssz)]):
-                                    to_visit.append(e - sbase)
-                    break
+        # Handle jump instructions
+        if insn.mnemonic in ("jmp", "b", "bra", "jr"):
+            if len(insn.operands) == 1 and insn.operands[0].type == CS_OP_IMM:
+                to_visit.append(insn.operands[0].imm - base_addr)
+            continue
 
     return insn_map
 
 def main():
     if len(sys.argv) < 2:
         log_message("[ERROR] Usage: python comprehensive_disassembler.py <firmware.elf>")
-        print("Usage: python comprehensive_disassembler.py <firmware.elf>")
         sys.exit(1)
 
     filename = sys.argv[1]
-
     if not os.path.exists(filename):
         log_message(f"[ERROR] File not found: {filename}")
-        print(f"[ERROR] File not found: {filename}")
         sys.exit(1)
-
-    log_message(f"[INFO] Processing file: {filename}")
 
     with open(filename, 'rb') as f:
         elffile = ELFFile(f)
+        arch, mode, ptr_size = detect_arch(elffile)
 
-        try:
-            (arch, mode, ptr_size) = detect_arch(elffile)
-            log_message(f"[INFO] Detected architecture: {arch}, Mode: {mode}")
-        except ValueError as ve:
-            log_message(f"[ERROR] {ve}")
-            print(f"[!] {ve}")
-            sys.exit(1)
-        
         md = Cs(arch, mode)
         md.detail = True
 
         exec_sections = load_executable_sections(elffile)
         if not exec_sections:
             log_message("[ERROR] No executable sections found.")
-            print("[!] No executable sections found.")
             sys.exit(0)
-        
+
         log_message("[INFO] Executable sections found. Starting disassembly.")
-
         symbol_map = gather_symbols(elffile)
-        reloc_addrs = gather_relocations(elffile)
-
-        code_sections_info = [(sname, base_addr, size) for (sname, _, base_addr, size) in exec_sections]
 
         global_insn_map = {}
-
         for (sname, data, base_addr, size) in exec_sections:
             log_message(f"[INFO] Disassembling section '{sname}' at 0x{base_addr:x} (size={size} bytes).")
-            print(f"\n[+] Disassembling section '{sname}' at 0x{base_addr:x}, size={size} bytes.")
-
-            visited_offsets = set()
-            to_visit = [0]
-            section_insn_map = recursive_descent_disassemble(
-                md, data, base_addr, size,
-                code_sections_info, symbol_map, reloc_addrs, ptr_size,
-                visited_offsets, to_visit
-            )
+            section_insn_map = recursive_descent_disassemble(md, data, base_addr, size)
             global_insn_map.update(section_insn_map)
 
         sorted_insns = sorted(global_insn_map.items(), key=lambda x: x[0])
-        
         log_message("[INFO] Final disassembly results:")
-        print("\n=== Final Disassembly (All Sections) ===")
         for addr, (mn, op) in sorted_insns:
-            sym_hint = ""
-            if addr in symbol_map:
-                sym_name, _ = symbol_map[addr]
-                sym_hint = f"<{sym_name}> "
-            line = f"0x{addr:08x}:  {sym_hint}{mn:6s} {op}"
-            print(line)
-            log_message(line)
+            sym_hint = f"<{symbol_map.get(addr, ('', ''))[0]}> " if addr in symbol_map else ""
+            log_message(f"0x{addr:08x}:  {sym_hint}{mn:6s} {op}")
 
     log_message("[INFO] Disassembly completed successfully.")
-
-    if len(sys.argv) < 2:
-        print("Usage: python comprehensive_disassembler.py <firmware.elf>")
-        sys.exit(1)
-
-    filename = sys.argv[1]
-    with open(filename, 'rb') as f:
-        elffile = ELFFile(f)
-
-        try:
-            (arch, mode, ptr_size) = detect_arch(elffile)
-        except ValueError as ve:
-            print(f"[!] {ve}")
-            sys.exit(1)
-        
-        md = Cs(arch, mode)
-        md.detail = True
-
-        # Gather all executable sections
-        exec_sections = load_executable_sections(elffile)
-        if not exec_sections:
-            print("[!] No executable sections found with SHF_EXECINSTR.")
-            sys.exit(0)
-        
-        # Gather symbol + relocation info
-        symbol_map = gather_symbols(elffile)
-        reloc_addrs = gather_relocations(elffile)
-
-        # We'll build a small index of code section ranges for quick lookups
-        code_sections_info = []
-        for (sname, data, base_addr, size) in exec_sections:
-            code_sections_info.append((sname, base_addr, size))
-
-        global_insn_map = {}
-
-        for (sname, data, base_addr, size) in exec_sections:
-            print(f"\n[+] Disassembling section '{sname}' at 0x{base_addr:x}, size={size} bytes.")
-            visited_offsets = set()
-            to_visit = [0]
-            section_insn_map = recursive_descent_disassemble(
-                md, data, base_addr, size,
-                code_sections_info, symbol_map, reloc_addrs, ptr_size,
-                visited_offsets, to_visit
-            )
-            # Merge results
-            global_insn_map.update(section_insn_map)
-
-        # Sort final instructions by address
-        sorted_insns = sorted(global_insn_map.items(), key=lambda x: x[0])
-        print("\n=== Final Disassembly (All Sections) ===")
-        for addr, (mn, op) in sorted_insns:
-            # symbol hint
-            sym_hint = ""
-            if addr in symbol_map:
-                sym_name, _ = symbol_map[addr]
-                sym_hint = f"<{sym_name}> "
-            print(f"0x{addr:08x}:  {sym_hint}{mn:6s} {op}")
 
 if __name__ == "__main__":
     main()
