@@ -5,6 +5,7 @@ WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
+    curl \
     build-essential \
     gcc \
     libc6-dev \
@@ -13,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     libcapstone-dev \
     binutils \
     && rm -rf /var/lib/apt/lists/*
+
 
 # Copy the application files
 COPY . .

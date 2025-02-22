@@ -53,28 +53,62 @@ print("[DEBUG] ENUM_E_MACHINE contents:", ENUM_E_MACHINE)
 def detect_arch(elffile):
     e_machine = elffile.header.e_machine
 
-    print(f"[DEBUG] Detected e_machine: {e_machine} ({ENUM_E_MACHINE.get(e_machine, 'UNKNOWN')})")
+    # Ensure e_machine is an integer
+    if isinstance(e_machine, str):  
+        e_machine = ENUM_E_MACHINE.get(e_machine, None)  # Convert if it's a string
+    if e_machine is None:
+        print("[ERROR] ❌ Could not determine architecture")
+        sys.exit(1)
+
+    print(f"[DEBUG] Detected e_machine: {ENUM_E_MACHINE.get(e_machine, 'UNKNOWN')} ({e_machine})")
+
+    if e_machine == 183:  # EM_AARCH64
+        print("[INFO] ✅ Architecture detected: ARM64 (AArch64) - Proceeding with disassembly.")
+        return (CS_ARCH_ARM64, 0, 8)  # Capstone does NOT require mode flag for AArch64
+
+    print(f"[ERROR] ❌ Unsupported architecture {e_machine}")
+    sys.exit(1)
+
+
+    print(f"[DEBUG] Architecture detected: {ENUM_E_MACHINE.get(e_machine, 'UNKNOWN')} ({e_machine})")
+
+    if e_machine == 183:  # EM_AARCH64
+        print("[INFO] ✅ Architecture detected: ARM64 (AArch64) - Proceeding with disassembly.")
+        return (CS_ARCH_ARM64, 0, 8)  # Capstone does NOT require mode flag for AArch64
+
+    arch_str = ENUM_E_MACHINE.get(e_machine, "UNKNOWN")
+    print(f"[DEBUG] Detected e_machine: {arch_str} ({e_machine})")
 
     if e_machine == 62:  # EM_X86_64
+        print("[INFO] Architecture detected: x86_64 - Proceeding with disassembly.")
         return (CS_ARCH_X86, CS_MODE_64, 8)
     elif e_machine == 40:  # EM_ARM (32-bit)
+        print("[INFO] Architecture detected: ARM (32-bit) - Proceeding with disassembly.")
         return (CS_ARCH_ARM, CS_MODE_ARM, 4)
     elif e_machine == 183:  # EM_AARCH64 (ARM64)
-        return (CS_ARCH_ARM64, 0, 8)  # No mode required for AArch64
+        print("[INFO] ✅ Architecture detected: ARM64 (AArch64) - Proceeding with disassembly.")
+        return (CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN, 8)  # Fixed mode
     elif e_machine == 243:  # EM_RISCV (RISC-V)
+        print("[INFO] Architecture detected: RISC-V - Checking mode...")
         if elffile.header.e_ident['EI_CLASS'] == 1:  # 32-bit ELF
+            print("[INFO] RISC-V detected in 32-bit mode.")
             return (CS_ARCH_RISCV, CS_MODE_RISC_V32, 4)
         else:  # 64-bit ELF
+            print("[INFO] RISC-V detected in 64-bit mode.")
             return (CS_ARCH_RISCV, CS_MODE_RISC_V64, 8)
     elif e_machine == 20:  # EM_PPC (PowerPC 32-bit)
+        print("[INFO] Architecture detected: PowerPC - Proceeding with disassembly.")
         return (CS_ARCH_PPC, CS_MODE_32, 4)
     elif e_machine == 21:  # EM_PPC64 (PowerPC 64-bit)
+        print("[INFO] Architecture detected: PowerPC64 - Proceeding with disassembly.")
         return (CS_ARCH_PPC, CS_MODE_64, 8)
-    elif e_machine == 8:  # EM_MIPS
+    elif e_machine == 8:  # EM_MIPS (MIPS)
+        print("[INFO] Architecture detected: MIPS - Proceeding with disassembly.")
         return (CS_ARCH_MIPS, CS_MODE_32, 4)
     else:
-        log_message(f"[ERROR] Unsupported architecture {ENUM_E_MACHINE.get(e_machine, 'UNKNOWN')}")
+        print(f"[ERROR] ❌ Unsupported architecture {e_machine} - {arch_str}")
         sys.exit(1)
+
 
 def load_executable_sections(elffile):
     """Return a list of executable sections."""
