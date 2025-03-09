@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-rda_enhanced_with_data.py
+rda_enhanced_with_data_and_cfg.py
 
-A single script that:
- 1) Detects the ELF architecture (x86_64, ARM, etc.).
- 2) Disassembles all executable sections linearly.
- 3) Extracts printable strings from non-executable data sections.
+Extended from your original script to:
+ 1) Detect ELF architecture (x86_64, ARM, etc.)
+ 2) Disassemble all executable sections linearly
+ 3) Extract printable strings from non-executable data sections
+ 4) Build a BASIC Control Flow Graph (CFG) from the instruction-level disassembly
 
 Usage:
-  python rda_enhanced_with_data.py <firmware.elf>
-  
+  python rda_enhanced_with_data_and_cfg.py <firmware.elf>
+
 Dependencies:
   pip install capstone pyelftools
+  Also install Graphviz to convert .dot to .png: 'sudo apt-get install graphviz' (Linux)
 """
 
 import sys
@@ -61,7 +63,6 @@ def detect_arch(elffile):
     arch_str = ENUM_E_MACHINE.get(e_machine, "UNKNOWN")
     log_message(f"[DEBUG] e_machine = {arch_str} (ID={e_machine})")
 
-    # Common architectures
     if e_machine == 62:  # EM_X86_64
         log_message("[INFO] Architecture: x86_64.")
         return (CS_ARCH_X86, CS_MODE_64, 8)
@@ -109,8 +110,8 @@ def load_executable_sections(elffile):
 
 def load_data_sections(elffile):
     """
-    Returns [(name, bytes, base_addr, size)] for sections that are *not* executable 
-    but do have data (i.e. sh_type != NOBITS). Typically includes .rodata, .data, etc.
+    Returns [(name, bytes, base_addr, size)] for sections that are *not* executable
+    but do have data (like .rodata, .data). Excludes SHT_NOBITS (e.g. .bss).
     """
     results = []
     for section in elffile.iter_sections():
@@ -147,11 +148,11 @@ def gather_symbols(elffile):
 def linear_sweep_disassemble(md, code, base_addr):
     """
     Disassemble code from start to end in one pass.
-    Returns {addr: (mnemonic, op_str)}.
+    Returns {addr: (mnemonic, op_str, size)} so we can build a CFG.
     """
     insn_map = {}
     for insn in md.disasm(code, base_addr):
-        insn_map[insn.address] = (insn.mnemonic, insn.op_str)
+        insn_map[insn.address] = (insn.mnemonic, insn.op_str, insn.size)
     return insn_map
 
 # ------------------------------------------------------------------------------
@@ -159,50 +160,130 @@ def linear_sweep_disassemble(md, code, base_addr):
 # ------------------------------------------------------------------------------
 def extract_printable_strings(data, base_addr, min_len=4):
     """
-    Scan 'data' for sequences of printable ASCII (0x20..0x7E, plus tab, newline, etc.)
-    that are at least 'min_len' in length.
-
-    Returns a list of (absolute_address, string) for each discovered run of ASCII chars.
+    Scan 'data' for runs of printable ASCII (length >= min_len).
+    Returns list of (absolute_addr, string).
     """
     results = []
     current_chars = []
     start_offset = 0
 
     def flush_string(end_offset):
-        # Convert accumulated chars to a string and add to results
         s = ''.join(current_chars)
         absolute_addr = base_addr + start_offset
         results.append((absolute_addr, s))
 
-    is_printable = set(string.printable)  # 'printable' includes digits, letters, punctuation, whitespace
-    # Note that string.printable goes up to ~0x7E, plus \t\n\r\x0b\x0c, etc.
+    is_printable = set(string.printable)  # includes digits, letters, punctuation, whitespace
 
     for i, byte_val in enumerate(data):
         ch = chr(byte_val)
-        if ch in is_printable and byte_val != 0x0B and byte_val != 0x0C:
+        if ch in is_printable and byte_val not in ("\x0B", "\x0C"):
             # Accumulate
             if not current_chars:
-                # Start of a new string
                 start_offset = i
             current_chars.append(ch)
         else:
-            # Non-printable or disallowed control character => flush if we have a run
             if len(current_chars) >= min_len:
                 flush_string(i)
             current_chars = []
 
-    # If there's a leftover run at the end
+    # leftover run
     if len(current_chars) >= min_len:
         flush_string(len(data))
 
     return results
 
 # ------------------------------------------------------------------------------
+# Basic CFG Builder
+# ------------------------------------------------------------------------------
+def build_cfg(insn_map):
+    """
+    Build a minimal control flow graph from {addr: (mnemonic, op_str, size)}.
+    We'll produce a single DOT file 'firmware/cfg.dot'.
+
+    Approach:
+      - One node per instruction
+      - If insn is *not* ret/jmp, add an edge to next insn (addr + size)
+      - If insn is jmp/call/b/bl, parse immediate operand as hex => if found in insn_map, add edge
+    """
+    log_message("[INFO] Building a basic control-flow graph (CFG)...")
+
+    # We'll gather edges in the form: (src_addr, dst_addr).
+    # Then we'll output a single .dot file for everything.
+    edges = []
+    # Sort addresses so we can handle "fall-through"
+    sorted_addrs = sorted(insn_map.keys())
+
+    # Allowed "branch" mnemonics that might have an immediate
+    branch_mnemonics = {"jmp", "call", "b", "bl"}
+
+    # Instructions that typically end a function or block
+    # so we won't add a fall-through edge
+    end_block = {"ret", "jmp", "bra"}
+
+    for i, addr in enumerate(sorted_addrs):
+        (mnemonic, op_str, size) = insn_map[addr]
+
+        # 1) Fall-through edge unless it's an end-block instruction
+        if mnemonic.lower() not in end_block:
+            next_addr = addr + size
+            if next_addr in insn_map:
+                edges.append((addr, next_addr))
+
+        # 2) If it's a direct branch or call with an immediate operand, parse it
+        if mnemonic.lower() in branch_mnemonics:
+            target = parse_immediate(op_str)
+            if target and target in insn_map:
+                edges.append((addr, target))
+
+    # Now output the .dot
+    dot_path = "firmware/cfg.dot"
+    log_message(f"[INFO] Writing CFG to {dot_path} ...")
+
+    with open(dot_path, "w") as f:
+        f.write("digraph RDA_CFG {\n")
+        f.write("  rankdir=LR;\n")  # Lay out left to right
+        # Create a node for each instruction
+        for addr in sorted_addrs:
+            (mnemonic, op_str, _) = insn_map[addr]
+            label = f"{mnemonic} {op_str}"
+            # Escape quotes
+            label = label.replace("\"", "\\\"")
+            f.write(f"  \"{addr:#x}\" [label=\"0x{addr:08X}: {label}\"];\n")
+
+        # Create edges
+        for (src, dst) in edges:
+            f.write(f"  \"{src:#x}\" -> \"{dst:#x}\";\n")
+
+        f.write("}\n")
+
+    log_message("[INFO] CFG DOT file created. Convert to PNG with:\n"
+                "       dot -Tpng firmware/cfg.dot -o cfg.png")
+
+
+def parse_immediate(operand_str):
+    """
+    Very naive parse of an operand like "0x401050".
+    Returns an int or None if we can't parse.
+    """
+    op = operand_str.strip()
+    # If there's whitespace or commas, take the first token
+    # e.g. "0x400080, #0x3" => "0x400080"
+    token = op.split(',')[0].strip()
+    # ARM might have '#' prefix => "#0x400080"
+    token = token.lstrip('#')
+    if token.startswith("0x"):
+        try:
+            return int(token, 16)
+        except ValueError:
+            return None
+    return None
+
+# ------------------------------------------------------------------------------
 # Main
 # ------------------------------------------------------------------------------
 def main():
     if len(sys.argv) < 2:
-        log_message("[ERROR] Usage: python rda_enhanced_with_data.py <firmware.elf>")
+        log_message("[ERROR] Usage: python rda_enhanced_with_data_and_cfg.py <firmware.elf>")
         sys.exit(1)
 
     elf_path = sys.argv[1]
@@ -224,20 +305,20 @@ def main():
 
         # 4) Disassemble all executable sections *linearly*
         exec_sections = load_executable_sections(elffile)
+        all_insns = {}
         if not exec_sections:
             log_message("[WARNING] No executable sections found.")
         else:
             log_message("[INFO] Disassembling executable sections (linear sweep).")
-            all_insns = {}
             for (sec_name, data, base_addr, size) in exec_sections:
                 log_message(f"  >> Section '{sec_name}' at 0x{base_addr:X}, size={size}")
                 sec_insns = linear_sweep_disassemble(md, data, base_addr)
                 all_insns.update(sec_insns)
 
-            # 5) Sort and log the final code disassembly
+            # 5) Sort and log final code disassembly
             log_message("[INFO] Final Disassembly Results (executable sections):\n")
             for addr in sorted(all_insns.keys()):
-                mnemonic, op_str = all_insns[addr]
+                mnemonic, op_str, _size = all_insns[addr]
                 sym_info = symbol_map.get(addr, ("", False))
                 sym_name = sym_info[0]
                 sym_hint = f"<{sym_name}> " if sym_name else ""
@@ -256,9 +337,12 @@ def main():
                 else:
                     for (addr, s) in found_strings:
                         # Show address + the string
-                        # Truncate the string a bit if it's extremely long
                         display_s = s if len(s) < 100 else s[:100] + "..."
                         log_message(f"    0x{addr:08X}:  \"{display_s}\"")
+
+        # 7) Build a simple CFG from the disassembled instructions
+        if all_insns:
+            build_cfg(all_insns)
 
         log_message("\n[INFO] Done. Full output is in firmware/disassembly.log.")
 
