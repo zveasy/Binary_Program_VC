@@ -19,10 +19,13 @@ Dependencies:
 import sys
 import os
 import string
+import angr
+import argparse
 from elftools.elf.elffile import ELFFile
 from elftools.elf.constants import SH_FLAGS
 from elftools.elf.enums import ENUM_E_MACHINE
 from capstone import *
+from angr.errors import SimTranslationError
 
 # Handle older Capstone versions lacking RISC-V modes
 try:
@@ -192,6 +195,36 @@ def extract_printable_strings(data, base_addr, min_len=4):
 
     return results
 
+##### ANGR INTEGRATION #####
+def analyze_vex_ir_with_angr(binary_path):
+    """
+    1) Load the binary into angr
+    2) Build a quick CFG (CFGFast)
+    3) For each discovered function, print IR statements from each basic block
+    """
+    log_message("[ANGR] Loading binary with angr for IR analysis...")
+    proj = angr.Project(binary_path, auto_load_libs=False)
+
+    log_message("[ANGR] Building CFGFast...")
+    cfg = proj.analyses.CFGFast()
+
+    for func_addr, func in cfg.kb.functions.items():
+        log_message(f"[ANGR] Function {func.name} at 0x{func_addr:x}")
+
+        for block in func.blocks:
+            try:
+                irsb = block.vex  # Attempt to lift the block to VEX IR
+            except SimTranslationError:
+                log_message(f"  [WARN] Could not lift block at 0x{block.addr:x}, skipping.")
+                continue  # Skip this block and move to the next
+
+            log_message(f"  -- BasicBlock @ 0x{block.addr:x}, IR statements:")
+            for i, stmt in enumerate(irsb.statements):
+                log_message(f"    Stmt[{i}]: {stmt}")
+
+    log_message("[ANGR] IR analysis complete.")
+
+############################
 # ------------------------------------------------------------------------------
 # Basic CFG Builder
 # ------------------------------------------------------------------------------
@@ -281,12 +314,16 @@ def parse_immediate(operand_str):
 # ------------------------------------------------------------------------------
 # Main
 # ------------------------------------------------------------------------------
-def main():
-    if len(sys.argv) < 2:
-        log_message("[ERROR] Usage: python rda_enhanced_with_data_and_cfg.py <firmware.elf>")
-        sys.exit(1)
 
-    elf_path = sys.argv[1]
+def main():
+    # Argument Parsing
+    parser = argparse.ArgumentParser()
+    parser.add_argument("elf_path", help="Path to the firmware ELF file")
+    parser.add_argument("--angr", action="store_true", help="Enable VEX IR analysis with angr")
+    args = parser.parse_args()
+    
+    elf_path = args.elf_path  # Get firmware path from arguments
+
     if not os.path.exists(elf_path):
         log_message(f"[ERROR] File not found: {elf_path}")
         sys.exit(1)
@@ -336,13 +373,13 @@ def main():
                     log_message("    (No printable strings of length >= 4 found.)")
                 else:
                     for (addr, s) in found_strings:
-                        # Show address + the string
                         display_s = s if len(s) < 100 else s[:100] + "..."
                         log_message(f"    0x{addr:08X}:  \"{display_s}\"")
 
-        # 7) Build a simple CFG from the disassembled instructions
-        if all_insns:
-            build_cfg(all_insns)
+        # 7) Run angr analysis if --angr flag is used
+        if args.angr:
+            log_message("\n[INFO] Running angr for VEX IR analysis...")
+            analyze_vex_ir_with_angr(elf_path)  # Call angr-based analysis
 
         log_message("\n[INFO] Done. Full output is in firmware/disassembly.log.")
 
