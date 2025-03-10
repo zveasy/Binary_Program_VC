@@ -1,5 +1,3 @@
 strict digraph {
-4196216 [instructions=16];
-4196236 [instructions=2];
-4196240 [instructions=13];
+4194304 [instructions=25];
 }
