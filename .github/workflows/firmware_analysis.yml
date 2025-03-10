@@ -21,6 +21,11 @@ jobs:
           pip install -r requirements.txt
           pip install angr  # 🔥 Ensure angr is installed
 
+      - name: Install Graphviz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y graphviz
+
       - name: Run Firmware Analysis
         run: |
           python3 rda_disassembler_enhanced.py firmware/latest_firmware.bin
