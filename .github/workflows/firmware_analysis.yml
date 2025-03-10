@@ -25,6 +25,18 @@ jobs:
         run: |
           python3 rda_disassembler_enhanced.py firmware/latest_firmware.bin
 
+      - name: Convert CFG DOT to PNG
+        run: |
+          for dotfile in cfg_*.dot; do
+            dot -Tpng "$dotfile" -o "${dotfile%.dot}.png"
+          done
+
+      - name: Upload CFG Images
+        uses: actions/upload-artifact@v4
+        with:
+          name: cfg-images
+          path: "*.png"
+
       - name: Upload Disassembly Log
         uses: actions/upload-artifact@v4
         with:

@@ -21,11 +21,13 @@ import os
 import string
 import angr
 import argparse
+import networkx as nx
 from elftools.elf.elffile import ELFFile
 from elftools.elf.constants import SH_FLAGS
 from elftools.elf.enums import ENUM_E_MACHINE
 from capstone import *
-from angr.errors import SimTranslationError
+from angr.errors import SimTranslationError, SimEngineError
+import networkx.drawing.nx_pydot as nx_pydot
 
 # Handle older Capstone versions lacking RISC-V modes
 try:
@@ -197,33 +199,42 @@ def extract_printable_strings(data, base_addr, min_len=4):
 
 ##### ANGR INTEGRATION #####
 def analyze_vex_ir_with_angr(binary_path):
-    """
-    1) Load the binary into angr
-    2) Build a quick CFG (CFGFast)
-    3) For each discovered function, print IR statements from each basic block
-    """
     log_message("[ANGR] Loading binary with angr for IR analysis...")
     proj = angr.Project(binary_path, auto_load_libs=False)
 
-    log_message("[ANGR] Building CFGFast...")
-    cfg = proj.analyses.CFGFast()
+    log_message("[ANGR] Building CFGEmulated...")
+    cfg = proj.analyses.CFGEmulated()
 
     for func_addr, func in cfg.kb.functions.items():
         log_message(f"[ANGR] Function {func.name} at 0x{func_addr:x}")
 
+        # ✅ Create a new graph for this function
+        func_graph = nx.DiGraph()
+
         for block in func.blocks:
             try:
-                irsb = block.vex  # Attempt to lift the block to VEX IR
-            except SimTranslationError:
-                log_message(f"  [WARN] Could not lift block at 0x{block.addr:x}, skipping.")
-                continue  # Skip this block and move to the next
+                irsb = block.vex  # Attempt to lift block to VEX IR
+            except (SimTranslationError, SimEngineError) as e:
+                log_message(f"  [WARN] Could not lift block @ 0x{block.addr:x} ({e}), skipping.")
+                continue
 
             log_message(f"  -- BasicBlock @ 0x{block.addr:x}, IR statements:")
             for i, stmt in enumerate(irsb.statements):
                 log_message(f"    Stmt[{i}]: {stmt}")
 
-    log_message("[ANGR] IR analysis complete.")
+            # ✅ Add node for the block 
+            func_graph.add_node(block.addr, instructions=len(irsb.statements))
 
+            # ✅ Add edges for control flow
+            for successor in cfg.get_successors(block.addr, excluding_fakeret=True):
+                func_graph.add_edge(block.addr, successor.addr)
+
+        # ✅ Save function CFG as a .dot file **after processing all blocks**
+        dot_file_path = f"cfg_{func.name}.dot"
+        nx_pydot.write_dot(func_graph, dot_file_path)
+        log_message(f"[INFO] CFG saved for {func.name} as {dot_file_path}")
+
+    log_message("[ANGR] IR analysis complete.")
 ############################
 # ------------------------------------------------------------------------------
 # Basic CFG Builder
