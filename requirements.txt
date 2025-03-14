@@ -3,3 +3,4 @@ pyelftools==0.29
 capstone==5.0.0
 networkx
 python-multipart
+pydot
