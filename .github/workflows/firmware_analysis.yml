@@ -26,6 +26,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y graphviz
 
+      - name: Compile Test Firmware Binaries
+        run: |
+          mkdir -p firmware
+          gcc hello_world.c -o firmware/hello_world_test.bin
+          gcc infinite_loop.c -o firmware/infinite_loop_test.bin
+
       - name: Run Firmware Analysis (Infinite Loop Test)
         run: |
           python3 rda_disassembler_enhanced.py firmware/infinite_loop_test.bin
