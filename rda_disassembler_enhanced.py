@@ -322,6 +322,45 @@ def parse_immediate(operand_str):
             return None
     return None
 
+
+def detect_infinite_loops_in_cfg(cfg_graph):
+    """
+    Detect infinite loops by checking cycles that have no exit conditions.
+    """
+    infinite_loops = []
+    for cycle in nx.simple_cycles(cfg_graph):
+        if not cycle_has_exit_path(cfg_graph, cycle):
+            infinite_loops.append(cycle)
+    return infinite_loops
+
+def cycle_has_exit_path(cfg_graph, cycle):
+    """
+    Check if the cycle has any outgoing edges to nodes not in the cycle.
+    """
+    for node in cycle:
+        successors = cfg_graph.successors(node)
+        for succ in successors:
+            if succ_outside_cycle(succ, cycle):
+                return True  # Exit exists
+    return False  # No exit; infinite loop detected
+
+def cycle_has_exit_path(cfg, cycle):
+    cycle_set = set(cycle)
+    for node in cycle:
+        for successor in cfg.successors(node):
+            if successor not in cycle_set:
+                return True  # Found an exit node
+    return False  # No exit found; infinite loop
+
+def report_infinite_loops(infinite_loops):
+    if infinite_loops:
+        log_message("[ALERT] Potential infinite loops detected:")
+        for idx, loop in enumerate(infinite_loops, start=1):
+            loop_str = " -> ".join(f"0x{addr:x}" for addr in loop)
+            log_message(f"  Loop {idx}: {loop_str}")
+    else:
+        log_message("[INFO] No infinite loops detected.")
+
 # ------------------------------------------------------------------------------
 # Main
 # ------------------------------------------------------------------------------
@@ -372,6 +411,42 @@ def main():
                 sym_hint = f"<{sym_name}> " if sym_name else ""
                 line = f"0x{addr:08X}:  {sym_hint}{mnemonic} {op_str}"
                 log_message(line)
+
+        # ------------------------------
+        # ✅ Clearly build CFG graph here:
+        # ------------------------------
+        log_message("[INFO] Building CFG graph...")
+        cfg_graph = nx.DiGraph()
+
+        # Clearly populate CFG from all_insns
+        sorted_addrs = sorted(all_insns.keys())
+        branch_mnemonics = {"jmp", "b", "bl", "br", "cbz", "cbnz", "ret"}
+
+        for addr in sorted_addrs:
+            mnemonic, op_str, size = all_insns[addr]
+
+            # Add fall-through edge unless it's a terminating instruction
+            if mnemonic.lower() not in {"ret", "jmp", "br"}:
+                next_addr = addr + size
+                if next_addr in all_insns:
+                    cfg_graph.add_edge(addr, next_addr)
+
+            # Parse direct branch or call targets
+            target = parse_immediate(op_str)
+            if mnemonic.lower() in branch_mnemonics and target and target in all_insns:
+                cfg_graph.add_edge(addr, target)
+
+        # ✅ Immediately run infinite loop detection (clearly placed here):
+        log_message("[INFO] Checking CFG for infinite loops...")
+        infinite_loops = detect_infinite_loops_in_cfg(cfg_graph)
+        report_infinite_loops(infinite_loops)
+
+        # ✅ Write CFG to .dot file (optional clearly here):
+        dot_path = "firmware/cfg.dot"
+        nx_pydot.write_dot(cfg_graph, dot_path)
+        log_message(f"[INFO] CFG saved as {dot_path}")
+
+        # --------------------------------------
 
         # 6) Dump data sections for strings
         data_sections = load_data_sections(elffile)
