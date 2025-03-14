@@ -78,3 +78,13 @@ jobs:
         with:
           name: disassembly-log
           path: firmware/disassembly.log
+
+      - name: Generate Markdown Report
+        run: |
+          python3 generate_report.py firmware/disassembly.log firmware/report.md
+
+      - name: Upload Firmware Analysis Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-analysis-report
+          path: firmware/report.md
