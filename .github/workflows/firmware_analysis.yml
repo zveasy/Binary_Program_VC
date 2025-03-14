@@ -39,7 +39,7 @@ jobs:
 
       - name: Check for Infinite Loops
         run: |
-          if grep -q "infinite loop detected" firmware/disassembly.log; then
+          if grep -q "[ALERT] Potential infinite loops detected" firmware/disassembly.log; then
             echo "::error::Infinite loops detected! Check log for details."
             exit 1
           else
