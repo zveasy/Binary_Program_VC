@@ -19,7 +19,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install angr  # 🔥 Ensure angr is installed
+          pip install angr
 
       - name: Install Graphviz
         run: |
@@ -32,59 +32,66 @@ jobs:
           gcc hello_world.c -o firmware/hello_world_test.bin
           gcc infinite_loop.c -o firmware/infinite_loop_test.bin
 
-      - name: Run Firmware Analysis (Infinite Loop Test)
+      # Analyze Infinite Loop binary
+      - name: Analyze Infinite Loop Firmware
         run: |
           python3 rda_disassembler_enhanced.py firmware/infinite_loop_test.bin
+          python3 generate_report.py firmware/disassembly.log firmware/infinite_loop_report.md
           if grep -q "\[ALERT\] Potential infinite loops detected" firmware/disassembly.log; then
-            echo "✅ Infinite loop correctly detected."
+            echo "✅ Infinite loop detected in infinite_loop_test.bin (expected)."
           else
-            echo "::error::❌ Infinite loop NOT detected when expected!"
+            echo "::error::❌ No infinite loop detected in infinite_loop_test.bin."
             exit 1
           fi
+          mv firmware/cfg.dot firmware/infinite_loop_cfg.dot
 
-      - name: Run Firmware Analysis (Hello World Test)
+      - name: Upload Infinite Loop Firmware Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: infinite-loop-report
+          path: firmware/infinite_loop_report.md
+
+      - name: Rename CFG for Infinite Loop
+        run: mv firmware/infinite_loop_test_cfg.dot firmware/infinite_loop_cfg.dot || true
+
+      - name: Analyze Hello World Firmware
         run: |
           python3 rda_disassembler_enhanced.py firmware/hello_world_test.bin
+          python3 generate_report.py firmware/disassembly.log firmware/hello_world_report.md
           if grep -q "\[ALERT\] Potential infinite loops detected" firmware/disassembly.log; then
-            echo "::error::❌ Unexpected infinite loop detected in hello world binary."
+            echo "::error::❌ Infinite loop detected in hello_world_test.bin."
             exit 1
           else
-            echo "✅ No infinite loops detected (expected)."
+            echo "✅ No infinite loop detected in hello_world_test.bin (expected)."
           fi
 
-      - name: Convert CFG DOT to PNG
+      - name: Rename CFG for Hello World
+        run: mv firmware/hello_world_test_cfg.dot firmware/hello_world_cfg.dot || true
+
+      - name: Upload Hello World Firmware Analysis Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: hello-world-analysis-report
+          path: firmware/hello_world_report.md
+
+      - name: Convert CFG DOT files to PNG
         run: |
-          for dotfile in cfg_*.dot; do
+          for dotfile in firmware/*.dot; do
             dot -Tpng "$dotfile" -o "${dotfile%.dot}.png"
           done
-
-      - name: Check for Infinite Loops
-        run: |
-          if grep -q "[ALERT] Potential infinite loops detected" firmware/disassembly.log; then
-            echo "::error::Infinite loops detected! Check log for details."
-            exit 1
-          else
-            echo "✅ No infinite loops detected."
-          fi
 
       - name: Upload CFG Images
         uses: actions/upload-artifact@v4
         with:
           name: cfg-images
-          path: "*.png"
+          path: firmware/*.png
 
-      - name: Upload Disassembly Log
-        uses: actions/upload-artifact@v4
-        with:
-          name: disassembly-log
-          path: firmware/disassembly.log
-
-      - name: Generate Markdown Report
+      - name: Generate Combined Firmware Analysis Report
         run: |
-          python3 generate_report.py firmware/disassembly.log firmware/report.md
+          cat firmware/infinite_loop_report.md firmware/hello_world_report.md > firmware/combined_report.md
 
-      - name: Upload Firmware Analysis Report
+      - name: Upload Combined Firmware Analysis Report
         uses: actions/upload-artifact@v4
         with:
           name: firmware-analysis-report
-          path: firmware/report.md
+          path: firmware/*.md

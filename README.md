@@ -90,6 +90,34 @@ After each push, perform:
 
 ---
 
+
+
+# Firmware Analysis Pipeline
+
+## Overview
+- Purpose of the pipeline
+- Technologies used (Angr, NetworkX, Graphviz, etc.)
+
+## Analysis Steps
+1. Architecture detection (x86_64, AArch64, etc.)
+2. Linear disassembly of executable sections
+3. CFG (Control Flow Graph) generation
+4. Detection of infinite loops
+5. Extraction of printable strings
+
+## How Infinite Loop Detection Works
+- Explanation of CFG analysis
+- Criteria used for detecting loops
+
+## Analyzing Reports
+- Instructions to access and interpret the generated Markdown reports (`firmware/report.md`).
+
+## GitHub Actions Automation
+- How the workflow file (`firmware_analysis.yml`) automates this process.
+
+## Usage
+- Steps to trigger and verify firmware analysis with new binaries.
+
 **Maintained by:** Zakariya Veasy 
 **Last Updated:** March 2025
 
