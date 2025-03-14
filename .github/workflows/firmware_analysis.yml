@@ -26,16 +26,31 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y graphviz
 
-      - name: Run Firmware Analysis
+      - name: Run Firmware Analysis (Infinite Loop Test)
         run: |
-          python3 rda_disassembler_enhanced.py firmware/latest_firmware.bin
+          python3 rda_disassembler_enhanced.py firmware/infinite_loop_test.bin
+          if grep -q "\[ALERT\] Potential infinite loops detected" firmware/disassembly.log; then
+            echo "✅ Infinite loop correctly detected."
+          else
+            echo "::error::❌ Infinite loop NOT detected when expected!"
+            exit 1
+          fi
+
+      - name: Run Firmware Analysis (Hello World Test)
+        run: |
+          python3 rda_disassembler_enhanced.py firmware/hello_world_test.bin
+          if grep -q "\[ALERT\] Potential infinite loops detected" firmware/disassembly.log; then
+            echo "::error::❌ Unexpected infinite loop detected in hello world binary."
+            exit 1
+          else
+            echo "✅ No infinite loops detected (expected)."
+          fi
 
       - name: Convert CFG DOT to PNG
         run: |
           for dotfile in cfg_*.dot; do
             dot -Tpng "$dotfile" -o "${dotfile%.dot}.png"
           done
-
 
       - name: Check for Infinite Loops
         run: |
