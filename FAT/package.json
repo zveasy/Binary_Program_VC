@@ -1,5 +1,5 @@
 {
-  "name": "FAT",
+  "name": "fat",
   "displayName": "Firmware Analysis Tool",
   "description": " (CFGs, infinite loop detection status, printable strings) clearly within VSCode panels or webviews.",
   "version": "0.0.1",
@@ -9,18 +9,15 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-  "onCommand:fat.analyzeFirmware"
-],
-"main": "./dist/extension.js",
-"contributes": {
-  "commands": [
-    {
-      "command": "fat.analyzeFirmware",
-      "title": "Run Firmware Analysis"
-    }
-  ]
-},
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "fat.analyzeFirmware",
+        "title": "Run Firmware Analysis"
+      }
+    ]
+  },
   "scripts": {
     "vscode:prepublish": "npm run package",
     "compile": "webpack",

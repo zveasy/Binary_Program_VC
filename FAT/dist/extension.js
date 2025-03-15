@@ -45,28 +45,33 @@ const vscode = __importStar(__webpack_require__(1));
 const child_process_1 = __webpack_require__(2);
 const path = __importStar(__webpack_require__(3));
 function activate(context) {
-    console.log('Firmware Analysis Tool "FAT" is now active.');
-    let disposable = vscode.commands.registerCommand('fat.analyzeFirmware', () => {
-        vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: "Analyzing Firmware...",
-            cancellable: false
-        }, async () => {
+    const disposable = vscode.commands.registerCommand('fat.analyzeFirmware', () => {
+        vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Analyzing Firmware...", cancellable: false }, async () => {
+            // 1) Check workspace
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders || workspaceFolders.length === 0) {
                 vscode.window.showErrorMessage('No workspace folder open.');
                 return;
             }
+            // 2) Build absolute paths
             const workspaceRoot = workspaceFolders[0];
             const workspacePath = workspaceRoot.uri.fsPath;
+            // If rda_disassembler_enhanced.py is in the *same folder* as extension.ts, do:
+            // const scriptPath = path.join(workspacePath, 'src', 'rda_disassembler_enhanced.py');
+            // If it's at the top-level of your workspace folder, just do:
+            const scriptPath = path.join(workspacePath, 'rda_disassembler_enhanced.py');
             const firmwarePath = path.join(workspacePath, 'firmware', 'latest_firmware.bin');
+            const logPath = path.join(workspacePath, 'firmware', 'disassembly.log');
+            const reportScriptPath = path.join(workspacePath, 'generate_report.py');
             const reportPath = path.join(workspacePath, 'firmware', 'report.md');
-            (0, child_process_1.exec)(`python3 rda_disassembler_enhanced.py ${firmwarePath}`, (err) => {
+            // 3) Run the disassembler with correct working directory
+            (0, child_process_1.exec)(`python3 "${scriptPath}" "${firmwarePath}"`, { cwd: workspacePath }, (err) => {
                 if (err) {
                     vscode.window.showErrorMessage(`Firmware analysis failed: ${err.message}`);
                     return;
                 }
-                (0, child_process_1.exec)(`python3 generate_report.py firmware/disassembly.log ${reportPath}`, (reportErr) => {
+                // 4) Then run the report generator
+                (0, child_process_1.exec)(`python3 "${reportScriptPath}" "${logPath}" "${reportPath}"`, { cwd: workspacePath }, (reportErr) => {
                     if (reportErr) {
                         vscode.window.showErrorMessage(`Report generation failed: ${reportErr.message}`);
                     }
