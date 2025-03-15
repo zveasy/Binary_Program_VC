@@ -3,58 +3,105 @@ import { exec } from 'child_process';
 import * as path from 'path';
 
 export function activate(context: vscode.ExtensionContext) {
+    console.log('Firmware Analysis Tool "FAT" is now active (auto-start).');
 
-  const disposable = vscode.commands.registerCommand('fat.analyzeFirmware', () => {
-
-    vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: "Analyzing Firmware...", cancellable: false },
-      async () => {
-
-        // 1) Check workspace
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-          vscode.window.showErrorMessage('No workspace folder open.');
-          return;
-        }
-
-        // 2) Build absolute paths
-        const workspaceRoot = workspaceFolders[0];
-        const workspacePath = workspaceRoot.uri.fsPath;
-        
-        // If rda_disassembler_enhanced.py is in the *same folder* as extension.ts, do:
-        // const scriptPath = path.join(workspacePath, 'src', 'rda_disassembler_enhanced.py');
-        // If it's at the top-level of your workspace folder, just do:
-        const scriptPath = path.join(workspacePath, 'rda_disassembler_enhanced.py');
-
-        const firmwarePath = path.join(workspacePath, 'firmware', 'latest_firmware.bin');
-        const logPath = path.join(workspacePath, 'firmware', 'disassembly.log');
-        const reportScriptPath = path.join(workspacePath, 'generate_report.py');
-        const reportPath = path.join(workspacePath, 'firmware', 'report.md');
-
-        // 3) Run the disassembler with correct working directory
-        exec(`python3 "${scriptPath}" "${firmwarePath}"`, { cwd: workspacePath }, (err) => {
-          if (err) {
-            vscode.window.showErrorMessage(`Firmware analysis failed: ${err.message}`);
-            return;
-          }
-
-          // 4) Then run the report generator
-          exec(`python3 "${reportScriptPath}" "${logPath}" "${reportPath}"`, { cwd: workspacePath }, (reportErr) => {
-            if (reportErr) {
-              vscode.window.showErrorMessage(`Report generation failed: ${reportErr.message}`);
-            } else {
-              vscode.window.showInformationMessage('Firmware analysis completed successfully!');
-              vscode.workspace.openTextDocument(reportPath).then(doc => {
-                vscode.window.showTextDocument(doc);
-              });
-            }
-          });
-        });
-      }
-    );
-  });
-
-  context.subscriptions.push(disposable);
+    // 1) Immediately run analysis when the extension activates.
+    runAnalysisAndShowCFG();
 }
 
-export function deactivate() {}
+async function runAnalysisAndShowCFG() {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        vscode.window.showErrorMessage('No workspace folder open.');
+        return;
+    }
+
+    const workspacePath = workspaceFolders[0].uri.fsPath;
+
+    // Paths to your Python scripts and files
+    const scriptPath = path.join(workspacePath, 'rda_disassembler_enhanced.py');
+    const generateReportPath = path.join(workspacePath, 'generate_report.py');
+    const firmwarePath = path.join(workspacePath, 'firmware', 'latest_firmware.bin');
+    const logPath = path.join(workspacePath, 'firmware', 'disassembly.log');
+    const reportPath = path.join(workspacePath, 'firmware', 'report.md');
+    const cfgDotPath = path.join(workspacePath, 'firmware', 'cfg.dot');
+    const cfgPngPath = path.join(workspacePath, 'firmware', 'cfg.png');
+
+    // 2) Run the firmware analysis
+    vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: "Analyzing Firmware (auto-run)...",
+        cancellable: false
+    }, async () => {
+
+        // (A) Disassembler
+        await runCommand(`python3 "${scriptPath}" "${firmwarePath}"`, workspacePath);
+
+        // (B) Possibly convert cfg.dot to cfg.png:
+        //     dot -Tpng cfg.dot -o cfg.png
+        // Only do this if you generate .dot automatically.
+        // Adjust path if 'dot' is not in your PATH or you need a full path.
+        await runCommand(`dot -Tpng "${cfgDotPath}" -o "${cfgPngPath}"`, workspacePath);
+
+        // (C) Generate report
+        await runCommand(`python3 "${generateReportPath}" "${logPath}" "${reportPath}"`, workspacePath);
+
+        vscode.window.showInformationMessage('Firmware analysis completed successfully (auto-run)!');
+
+        // 3) Show the CFG image in a webview
+        showCFGWebview(cfgPngPath);
+    });
+}
+
+/**
+ * Spawns a shell command & returns a Promise that resolves/fails on completion.
+ */
+function runCommand(command: string, cwd: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+        exec(command, { cwd }, (error, stdout, stderr) => {
+            if (error) {
+                vscode.window.showErrorMessage(`Command failed: ${error.message}`);
+                reject(error);
+            } else {
+                resolve();
+            }
+        });
+    });
+}
+
+/**
+ * Opens a new webview panel and displays the CFG image.
+ */
+function showCFGWebview(cfgPath: string) {
+    const panel = vscode.window.createWebviewPanel(
+        'firmwareCFG',         // internal identifier
+        'Firmware Control Flow Graph', // title in the tab
+        vscode.ViewColumn.One, // show in the first editor column
+        {
+            enableScripts: true // if you need JS in the webview
+        }
+    );
+
+    // Convert local file path to a webview URI
+    const cfgUri = panel.webview.asWebviewUri(vscode.Uri.file(cfgPath));
+
+    // Basic HTML that displays the PNG
+    panel.webview.html = `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <title>Firmware CFG</title>
+        </head>
+        <body>
+            <h2>Control Flow Graph</h2>
+            <p>CFG generated automatically during analysis.</p>
+            <img src="${cfgUri}" />
+        </body>
+        </html>
+    `;
+}
+
+export function deactivate() {
+    console.log('Firmware Analysis Tool "FAT" deactivated.');
+}
