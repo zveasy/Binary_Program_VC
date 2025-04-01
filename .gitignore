@@ -10,6 +10,12 @@ venv/
 .env/
 base/
 
+#Folders
+joern_cfg_graphs/
+pt_cfg_files/
+tree-sitter-cpp/
+astenv/
+
 # Ignore compiled binaries except latest_firmware.bin
 firmware/*
 !firmware/latest_firmware.bin
