@@ -413,42 +413,71 @@ def main():
                 log_message(line)
 
         # ------------------------------
+<<<<<<< HEAD
         # Clearly build CFG graph here:
+=======
+        # build CFG graph here:
+>>>>>>> 2b7c0e2009ab3b0ab163ef60f020866cbb30271e
         # ------------------------------
+        # ZAK
         log_message("[INFO] Building CFG graph...")
+<<<<<<< HEAD
         cfg_graph = nx.DiGraph() #**************
+=======
+        cfg_graph = nx.DiGraph() #***
+>>>>>>> 2b7c0e2009ab3b0ab163ef60f020866cbb30271e
 
         # Clearly populate CFG from all_insns
         sorted_addrs = sorted(all_insns.keys())
         branch_mnemonics = {"jmp", "b", "bl", "br", "cbz", "cbnz", "ret"}
 
+<<<<<<< HEAD
         for addr in sorted_addrs: #**************
             mnemonic, op_str, size = all_insns[addr]
 
             # Add fall-through edge unless it's a terminating instruction
             if mnemonic.lower() not in {"ret", "jmp", "br"}: #**************
+=======
+        for addr in sorted_addrs: #***
+            mnemonic, op_str, size = all_insns[addr]
+
+            # Add fall-through edge unless it's a terminating instruction
+            if mnemonic.lower() not in {"ret", "jmp", "br"}: #***
+>>>>>>> 2b7c0e2009ab3b0ab163ef60f020866cbb30271e
                 next_addr = addr + size
                 if next_addr in all_insns:
                     cfg_graph.add_edge(addr, next_addr)
 
             # Parse direct branch or call targets
             target = parse_immediate(op_str)
+<<<<<<< HEAD
             if mnemonic.lower() in branch_mnemonics and target and target in all_insns: #**************
+=======
+            if mnemonic.lower() in branch_mnemonics and target and target in all_insns: #***
+>>>>>>> 2b7c0e2009ab3b0ab163ef60f020866cbb30271e
                 cfg_graph.add_edge(addr, target)
 
         # Immediately run infinite loop detection (clearly placed here):
         log_message("[INFO] Checking CFG for infinite loops...")
+<<<<<<< HEAD
         infinite_loops = detect_infinite_loops_in_cfg(cfg_graph) #**************
+=======
+        infinite_loops = detect_infinite_loops_in_cfg(cfg_graph) #***
+>>>>>>> 2b7c0e2009ab3b0ab163ef60f020866cbb30271e
         report_infinite_loops(infinite_loops)
 
         # Write CFG to .dot file (optional clearly here):
         dot_path = "firmware/cfg.dot"
+<<<<<<< HEAD
         nx_pydot.write_dot(cfg_graph, dot_path) #**************
+=======
+        nx_pydot.write_dot(cfg_graph, dot_path) #***
+>>>>>>> 2b7c0e2009ab3b0ab163ef60f020866cbb30271e
         log_message(f"[INFO] CFG saved as {dot_path}")
 
         # --------------------------------------
 
-        # 6) Dump data sections for strings
+        # 6) Dump data sections for strings AARON
         data_sections = load_data_sections(elffile)
         if data_sections:
             log_message("\n[INFO] Searching data sections for printable strings:")
