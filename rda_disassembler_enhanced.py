@@ -413,37 +413,37 @@ def main():
                 log_message(line)
 
         # ------------------------------
-        # ✅ Clearly build CFG graph here:
+        # Clearly build CFG graph here:
         # ------------------------------
         log_message("[INFO] Building CFG graph...")
-        cfg_graph = nx.DiGraph()
+        cfg_graph = nx.DiGraph() #**************
 
         # Clearly populate CFG from all_insns
         sorted_addrs = sorted(all_insns.keys())
         branch_mnemonics = {"jmp", "b", "bl", "br", "cbz", "cbnz", "ret"}
 
-        for addr in sorted_addrs:
+        for addr in sorted_addrs: #**************
             mnemonic, op_str, size = all_insns[addr]
 
             # Add fall-through edge unless it's a terminating instruction
-            if mnemonic.lower() not in {"ret", "jmp", "br"}:
+            if mnemonic.lower() not in {"ret", "jmp", "br"}: #**************
                 next_addr = addr + size
                 if next_addr in all_insns:
                     cfg_graph.add_edge(addr, next_addr)
 
             # Parse direct branch or call targets
             target = parse_immediate(op_str)
-            if mnemonic.lower() in branch_mnemonics and target and target in all_insns:
+            if mnemonic.lower() in branch_mnemonics and target and target in all_insns: #**************
                 cfg_graph.add_edge(addr, target)
 
-        # ✅ Immediately run infinite loop detection (clearly placed here):
+        # Immediately run infinite loop detection (clearly placed here):
         log_message("[INFO] Checking CFG for infinite loops...")
-        infinite_loops = detect_infinite_loops_in_cfg(cfg_graph)
+        infinite_loops = detect_infinite_loops_in_cfg(cfg_graph) #**************
         report_infinite_loops(infinite_loops)
 
-        # ✅ Write CFG to .dot file (optional clearly here):
+        # Write CFG to .dot file (optional clearly here):
         dot_path = "firmware/cfg.dot"
-        nx_pydot.write_dot(cfg_graph, dot_path)
+        nx_pydot.write_dot(cfg_graph, dot_path) #**************
         log_message(f"[INFO] CFG saved as {dot_path}")
 
         # --------------------------------------
