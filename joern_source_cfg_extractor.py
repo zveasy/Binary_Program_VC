@@ -8,11 +8,17 @@ from tqdm import tqdm
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-DATA_ROOT = "/Users/omnisceo/Desktop/spring_2025/data_Set_Time"
-OUTPUT_DIR = "joern_cfg_graphs"
+# Configurable paths: use env vars or defaults relative to repo root
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+DATA_ROOT = os.environ.get("JOERN_DATA_ROOT", os.path.join(_REPO_ROOT, "data_Set_Time"))
+OUTPUT_DIR = os.environ.get("JOERN_CFG_OUTPUT", os.path.join(_REPO_ROOT, "joern_cfg_graphs"))
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-LABELS = sorted([f for f in os.listdir(DATA_ROOT) if os.path.isdir(os.path.join(DATA_ROOT, f))])
+# Build label map from DATA_ROOT subdirs (only if DATA_ROOT exists)
+if os.path.isdir(DATA_ROOT):
+    LABELS = sorted([f for f in os.listdir(DATA_ROOT) if os.path.isdir(os.path.join(DATA_ROOT, f))])
+else:
+    LABELS = []
 label_map = {label: i for i, label in enumerate(LABELS)}
 
 JOERN_PARSE = "joern-parse"

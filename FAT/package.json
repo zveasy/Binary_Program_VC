@@ -16,6 +16,10 @@
       {
         "command": "fat.analyzeFirmware",
         "title": "Run Firmware Analysis"
+      },
+      {
+        "command": "fat.analyzeSelectedBinary",
+        "title": "Analyze Selected Binary..."
       }
     ]
   },

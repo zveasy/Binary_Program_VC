@@ -6,16 +6,15 @@ import re
 from spektral.layers import GCNConv
 from spektral.data import Dataset, Graph
 
-# ✅ Check if GPU is available
-print("Num GPUs Available:", len(tf.config.list_physical_devices('GPU')))
-
-# ✅ Path to Project_CodeNet dataset
-DATASET_PATH = "/Users/omnisceo/desktop/spring_2025/Binary_Program_VC/Project_CodeNet"
+# Configurable path: use env var or default relative to repo root
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+DATASET_PATH = os.environ.get("CODENET_DATASET_PATH", os.path.join(_REPO_ROOT, "Project_CodeNet"))
 
 if not os.path.exists(DATASET_PATH):
-    raise FileNotFoundError(f"Dataset not found at {DATASET_PATH}")
+    raise FileNotFoundError(f"Dataset not found at {DATASET_PATH}. Set CODENET_DATASET_PATH to point to Project_CodeNet.")
 
-print(f"🚀 Using dataset from: {DATASET_PATH}")
+print("Num GPUs Available:", len(tf.config.list_physical_devices('GPU')))
+print(f"Using dataset from: {DATASET_PATH}")
 
 # ✅ Tokenizer: Convert source code into token sequences
 def tokenize_code(file_content):

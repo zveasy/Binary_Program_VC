@@ -333,16 +333,6 @@ def detect_infinite_loops_in_cfg(cfg_graph):
             infinite_loops.append(cycle)
     return infinite_loops
 
-def cycle_has_exit_path(cfg_graph, cycle):
-    """
-    Check if the cycle has any outgoing edges to nodes not in the cycle.
-    """
-    for node in cycle:
-        successors = cfg_graph.successors(node)
-        for succ in successors:
-            if succ_outside_cycle(succ, cycle):
-                return True  # Exit exists
-    return False  # No exit; infinite loop detected
 
 def cycle_has_exit_path(cfg, cycle):
     cycle_set = set(cycle)
@@ -351,6 +341,53 @@ def cycle_has_exit_path(cfg, cycle):
             if successor not in cycle_set:
                 return True  # Found an exit node
     return False  # No exit found; infinite loop
+
+
+def estimate_complexity_heuristic(cfg_graph):
+    """
+    Estimate algorithm complexity from CFG structure (heuristic).
+    Returns a string like 'O(1)', 'O(n)', 'O(n^2)', or 'Unknown'.
+    """
+    if cfg_graph.number_of_nodes() == 0:
+        return "O(1)"
+    n_nodes = cfg_graph.number_of_nodes()
+    n_edges = cfg_graph.number_of_edges()
+    try:
+        cycles = list(nx.simple_cycles(cfg_graph))
+    except Exception:
+        cycles = []
+    n_cycles = len(cycles)
+    max_cycle_len = max((len(c) for c in cycles), default=0)
+    # Simple heuristics: small flat graph -> O(1)/O(n); one dominant cycle -> O(n); many cycles/large cycle -> O(n^2)+
+    if n_nodes <= 3 and n_cycles == 0:
+        return "O(1)"
+    if n_cycles == 0:
+        return "O(n)" if n_nodes < 50 else "O(n)"
+    if n_cycles == 1 and max_cycle_len <= 5:
+        return "O(n)"
+    if n_cycles >= 2 or max_cycle_len > 10:
+        return "O(n^2)" if n_nodes < 200 else "O(n^2) or higher"
+    return "O(n)"
+
+
+def detect_unreachable_code(cfg_graph, entry_address=None):
+    """
+    Find nodes not reachable from entry (entry = node with smallest address if not given).
+    Returns list of (address,) for unreachable nodes.
+    """
+    if cfg_graph.number_of_nodes() == 0:
+        return []
+    nodes = list(cfg_graph.nodes())
+    entry = entry_address if entry_address is not None else min(nodes)
+    if entry not in nodes:
+        return []
+    try:
+        reachable = set(nx.descendants(cfg_graph, entry)) | {entry}
+    except Exception:
+        reachable = {entry}
+    unreachable = [n for n in nodes if n not in reachable]
+    return [(addr,) for addr in unreachable]
+
 
 def report_infinite_loops(infinite_loops):
     if infinite_loops:
@@ -443,6 +480,23 @@ def main():
         log_message("[INFO] Checking CFG for infinite loops...")
         infinite_loops = detect_infinite_loops_in_cfg(cfg_graph) #**************
         report_infinite_loops(infinite_loops)
+
+        # Algorithm complexity estimation (heuristic from CFG structure)
+        log_message("[INFO] Estimating algorithm complexity from CFG...")
+        complexity_estimate = estimate_complexity_heuristic(cfg_graph)
+        log_message(f"[INFO] Estimated complexity: {complexity_estimate}")
+
+        # Control flow: unreachable code detection
+        log_message("[INFO] Checking for unreachable code...")
+        unreachable = detect_unreachable_code(cfg_graph)
+        if unreachable:
+            log_message("[ALERT] Unreachable code (control flow bug) detected at addresses:")
+            for (addr,) in unreachable[:20]:  # Limit to 20 in log
+                log_message(f"  Unreachable: 0x{addr:x}")
+            if len(unreachable) > 20:
+                log_message(f"  ... and {len(unreachable) - 20} more.")
+        else:
+            log_message("[INFO] No unreachable code detected.")
 
         # Write CFG to .dot file (optional clearly here):
         dot_path = "firmware/cfg.dot"

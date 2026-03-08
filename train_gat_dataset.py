@@ -1,6 +1,7 @@
 # train_gat_dataset.py
 
 import os
+import json
 import torch
 import torch.nn.functional as F
 from torch_geometric.nn import GATConv
@@ -8,14 +9,25 @@ from torch_geometric.data import DataLoader
 from sklearn.metrics import accuracy_score, classification_report
 from collections import defaultdict
 
-DATA_DIR = "joern_cfg_graphs"  # Adjust this if needed
+# Configurable paths
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.environ.get("GAT_DATA_DIR", os.path.join(_REPO_ROOT, "joern_cfg_graphs"))
+MODEL_SAVE_PATH = os.environ.get("GAT_MODEL_PATH", os.path.join(_REPO_ROOT, "gat_model.pt"))
+LABEL_MAP_SAVE_PATH = os.environ.get("GAT_LABEL_MAP_PATH", os.path.join(_REPO_ROOT, "gat_label_map.json"))
+
 BATCH_SIZE = 32
 EPOCHS = 30
+IN_DIM = 1
+HIDDEN_DIM = 64
 
 # === 1. Load all .pt CFG graphs ===
-print("[INFO] Loading graphs...")
+print("[INFO] Loading graphs from", DATA_DIR, "...")
 all_graphs = []
 label_names = set()
+
+if not os.path.isdir(DATA_DIR):
+    print("[ERROR] DATA_DIR not found:", DATA_DIR)
+    exit(1)
 
 for fname in os.listdir(DATA_DIR):
     if fname.endswith(".pt"):
@@ -25,7 +37,11 @@ for fname in os.listdir(DATA_DIR):
         graph.label_name = label
         all_graphs.append(graph)
 
-# Build label map (e.g. 'O_n2': 3)
+if not all_graphs:
+    print("[ERROR] No .pt graphs found in", DATA_DIR)
+    exit(1)
+
+# Build label map
 label_names = sorted(list(label_names))
 label_map = {name: i for i, name in enumerate(label_names)}
 print(f"[INFO] Label Map: {label_map}")
@@ -43,20 +59,11 @@ train_loader = DataLoader(train_graphs, batch_size=BATCH_SIZE, shuffle=True)
 val_loader = DataLoader(val_graphs, batch_size=BATCH_SIZE)
 
 # === 2. Define GAT Model ===
-class GAT(torch.nn.Module):
-    def __init__(self, in_dim, hidden_dim, out_dim):
-        super().__init__()
-        self.conv1 = GATConv(in_dim, hidden_dim, heads=2, concat=True)
-        self.conv2 = GATConv(hidden_dim * 2, out_dim, heads=1, concat=False)
-
-    def forward(self, data):
-        x, edge_index = data.x, data.edge_index
-        x = self.conv1(x, edge_index).relu()
-        x = self.conv2(x, edge_index)
-        return x
+from gat_model import GAT
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = GAT(in_dim=1, hidden_dim=64, out_dim=len(label_map)).to(device)
+out_dim = len(label_map)
+model = GAT(in_dim=IN_DIM, hidden_dim=HIDDEN_DIM, out_dim=out_dim).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
 
 # === 3. Training Loop ===
@@ -96,3 +103,16 @@ for epoch in range(EPOCHS):
 
 print("\n[INFO] Final Validation Report:\n")
 print(val_report)
+
+# === 4. Save model and label_map for inference ===
+os.makedirs(os.path.dirname(MODEL_SAVE_PATH) or ".", exist_ok=True)
+torch.save({
+    "state_dict": model.state_dict(),
+    "in_dim": IN_DIM,
+    "hidden_dim": HIDDEN_DIM,
+    "out_dim": out_dim,
+}, MODEL_SAVE_PATH)
+with open(LABEL_MAP_SAVE_PATH, "w") as f:
+    json.dump(label_map, f, indent=2)
+print(f"\n[INFO] Model saved to {MODEL_SAVE_PATH}")
+print(f"[INFO] Label map saved to {LABEL_MAP_SAVE_PATH}")

@@ -43,6 +43,8 @@ jobs:
             echo "::error::❌ No infinite loop detected in infinite_loop_test.bin."
             exit 1
           fi
+          grep -q "Verdict: FAIL" firmware/infinite_loop_report.md || (echo "::error::Expected Firmware Safety FAIL in infinite_loop_report.md"; exit 1)
+          grep -q "Estimated complexity" firmware/infinite_loop_report.md || (echo "::error::Missing Estimated complexity in report"; exit 1)
           mv firmware/cfg.dot firmware/infinite_loop_cfg.dot
 
       - name: Upload Infinite Loop Firmware Report
@@ -50,9 +52,6 @@ jobs:
         with:
           name: infinite-loop-report
           path: firmware/infinite_loop_report.md
-
-      - name: Rename CFG for Infinite Loop
-        run: mv firmware/infinite_loop_test_cfg.dot firmware/infinite_loop_cfg.dot || true
 
       - name: Analyze Hello World Firmware
         run: |
@@ -64,9 +63,9 @@ jobs:
           else
             echo "✅ No infinite loop detected in hello_world_test.bin (expected)."
           fi
-
-      - name: Rename CFG for Hello World
-        run: mv firmware/hello_world_test_cfg.dot firmware/hello_world_cfg.dot || true
+          grep -q "Verdict: PASS" firmware/hello_world_report.md || (echo "::error::Expected Firmware Safety PASS in hello_world_report.md"; exit 1)
+          grep -q "Estimated complexity" firmware/hello_world_report.md || (echo "::error::Missing Estimated complexity in report"; exit 1)
+          mv firmware/cfg.dot firmware/hello_world_cfg.dot
 
       - name: Upload Hello World Firmware Analysis Report
         uses: actions/upload-artifact@v4

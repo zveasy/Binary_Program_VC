@@ -1,0 +1,6 @@
+# Base pipeline (required for disassembly, CFG, report)
+-r requirements.txt
+
+# GNN training and inference (for train_gat_dataset.py, predict_complexity.py)
+torch
+torch-geometric

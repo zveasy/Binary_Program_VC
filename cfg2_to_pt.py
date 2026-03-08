@@ -11,11 +11,10 @@ import torch
 from torch_geometric.data import Data
 from tqdm import tqdm
 
-# ---------------------------------------------------------------------
-# Adjust these paths to match your setup
-# ---------------------------------------------------------------------
-JOERN_CFG_ROOT = "/Users/omnisceo/Desktop/spring_2025/Binary_Program_VC/joern_cfg_graphs"
-PT_OUTPUT_DIR  = "/Users/omnisceo/Desktop/spring_2025/Binary_Program_VC/pt_cfg_files"
+# Configurable paths: use env vars or defaults relative to repo root
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+JOERN_CFG_ROOT = os.environ.get("JOERN_CFG_ROOT", os.path.join(_REPO_ROOT, "joern_cfg_graphs"))
+PT_OUTPUT_DIR = os.environ.get("PT_OUTPUT_DIR", os.path.join(_REPO_ROOT, "pt_cfg_files"))
 
 os.makedirs(PT_OUTPUT_DIR, exist_ok=True)
 
