@@ -4,7 +4,13 @@
 
 ### Project overview
 
-CompLexAI is a binary program analysis pipeline: Binary → Disassembly → CFG → Analysis → (optionally) GNN complexity classification. See `README.md` for full details.
+CompLexAI is an autonomous software reasoning agent powered by binary and graph analysis. Architecture:
+
+- **Layer 1 — Analysis Engine** (`engine/`): Disassembly, CFG, loop detection, complexity estimation, report generation.
+- **Layer 2 — Agent Orchestration** (`agent/`): `FirmwareAuditAgent` that autonomously analyzes binaries and produces findings with plain-English explanations.
+- **Layer 3 — User Experience**: CLI (`cli.py`), FastAPI API (`api.py`), VS Code extension (`FAT/`).
+
+See `README.md` for full details.
 
 ### Services
 
@@ -19,7 +25,14 @@ CompLexAI is a binary program analysis pipeline: Binary → Disassembly → CFG 
 - System packages required: `graphviz`, `libcapstone-dev`, `gcc`, `build-essential` (installed via `apt`).
 - The API's `/analyze` endpoint writes to `/app/` (Docker path); in local dev, create it: `sudo mkdir -p /app && sudo chown $USER /app`.
 
-### Running the pipeline
+### Running the agent
+
+- **CLI audit:** `python cli.py audit firmware/<binary>.bin` (full agent pipeline)
+- **CLI JSON output:** `python cli.py audit firmware/<binary>.bin --json`
+- **API agent endpoint:** `POST /agent/audit` with file upload
+- **API audit report:** `GET /agent/audit/report`
+
+### Running the engine directly (lower-level)
 
 - Compile test binaries: `gcc hello_world.c -o firmware/hello_world_test.bin && gcc infinite_loop.c -o firmware/infinite_loop_test.bin`
 - Analyze a binary: `python rda_disassembler_enhanced.py firmware/<binary>.bin`
