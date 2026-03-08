@@ -92,6 +92,21 @@ def generate_markdown_report(log_path, output_path, dot_path=None):
         else:
             report.write("- ✅ **No immediate control-flow issues detected.**\n")
 
+        # Optimization suggestions (e.g. "Grammarly for code" style hints)
+        report.write("\n## Optimization suggestions\n")
+        suggestions = []
+        if complexity_estimate in ("O(n^2)", "O(n^2) or higher", "Unknown") or (gnn_complexity and "n2" in str(gnn_complexity).lower()):
+            suggestions.append("**Higher complexity detected** — Consider optimizing nested loops, reducing redundant work, or using a more efficient algorithm (e.g. hash map for lookups).")
+        for addr in infinite_loops[:5]:
+            suggestions.append(f"**Infinite loop at {addr}** — Ensure the loop has a reachable exit condition or timeout; check for uninitialized or stuck flags.")
+        for addr in unreachable[:5]:
+            suggestions.append(f"**Unreachable code at {addr}** — Remove dead code or fix control flow so this path can be reached (or is intentionally unreachable).")
+        if not suggestions:
+            report.write("- No specific optimization hints for this binary.\n")
+        else:
+            for s in suggestions:
+                report.write(f"- {s}\n")
+
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Usage: python3 generate_report.py <log_path> <output_path> [dot_path]")

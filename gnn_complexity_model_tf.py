@@ -58,21 +58,26 @@ def load_project_codenet_data(max_files=1000):
 
     return dataset, np.array(labels)
 
-# ✅ Load dataset
+# ✅ Load dataset once
+graphs_list, labels_array = load_project_codenet_data(max_files=1000)
+num_samples = len(graphs_list)
+if num_samples == 0:
+    raise ValueError("No samples loaded. Check CODENET_DATASET_PATH and file extensions.")
+
+print(f"✅ Loaded {num_samples} training samples from Project_CodeNet")
+
 def data_generator():
-    for graph, label in zip(*load_project_codenet_data(max_files=1000)):  # Load only 1000 at a time
+    for graph, label in zip(graphs_list, labels_array):
         yield (graph.x, graph.a), label
 
 # Convert generator to TensorFlow dataset
-dataset = tf.data.Dataset.from_generator(
+tf_dataset = tf.data.Dataset.from_generator(
     data_generator,
     output_signature=(
         (tf.TensorSpec(shape=(None, 1), dtype=tf.float32), tf.TensorSpec(shape=(None, None), dtype=tf.float32)),
         tf.TensorSpec(shape=(), dtype=tf.int32),
     )
-).batch(32)  # Process in batches of 32
-
-print(f"✅ Loaded {len(dataset)} training samples from Project_CodeNet")
+).batch(32)
 
 # ✅ TensorFlow Graph Neural Network (GNN) Model
 class ComplexityGNN(tf.keras.Model):
@@ -87,19 +92,16 @@ class ComplexityGNN(tf.keras.Model):
         x = self.conv2([x, a])
         return x
 
-# ✅ Prepare Training Data
-X = np.array([g.x for g in dataset])
-A = np.array([g.a for g in dataset])
-y = tf.keras.utils.to_categorical(labels, num_classes=3)  # One-hot encoding
-
 # ✅ Compile Model
 model = ComplexityGNN()
 model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
 
-# ✅ Train Model on GPU
+# ✅ Train Model
+steps_per_epoch = max(1, num_samples // 32)
 print("🚀 Training on GPU..." if len(tf.config.list_physical_devices('GPU')) > 0 else "🚀 Training on CPU...")
-model.fit([X, A], y, epochs=10, batch_size=32)
+model.fit(tf_dataset, epochs=10, steps_per_epoch=steps_per_epoch)
 
 # ✅ Save Model
-model.save("complexity_gnn_tf.h5")
-print("✅ Model saved to complexity_gnn_tf.h5")
+model_save_path = os.path.join(_REPO_ROOT, "complexity_gnn_tf.h5")
+model.save(model_save_path)
+print(f"✅ Model saved to {model_save_path}")

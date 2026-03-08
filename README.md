@@ -59,7 +59,22 @@ Technologies: **Capstone**, **angr**, **NetworkX**, **Graphviz**, **PyTorch Geom
 | Train on CFGs | `train_gat_dataset.py` | GAT training on labeled CFG graphs (e.g. O(n), O(n²)) |
 | GNN inference | `predict_complexity.py` | Predict complexity class from `firmware/cfg.dot` (or binary) using saved GAT model |
 
-**Dependencies:** Core pipeline uses `pip install -r requirements.txt`. For GNN training and inference (e.g. `train_gat_dataset.py`, `predict_complexity.py`), install additionally: `pip install -r requirements-gnn.txt` (adds `torch`, `torch-geometric`).
+| Prepare GNN sample | `prepare_gnn_sample.py` | Convert a single `.dot` to `.pt` with a label for training data |
+| CLI entry point | `analyze_binary.py` | One command: analyze a binary and write the report |
+
+**Dependencies:**
+
+- **Core (recommended on macOS / Python 3.13):** `requirements-core.txt` — pyelftools, capstone, networkx, pydot, fastapi, uvicorn. No angr (avoids unicorn/CMake build issues).
+- **Full (Linux/CI):** `requirements.txt` — adds angr for optional VEX IR analysis (`--angr`). On macOS with Python 3.13, angr may fail to install; use core and skip `--angr`.
+- **GNN:** For GNN training and inference, add: `pip install -r requirements-gnn.txt` (adds torch, torch-geometric).
+
+**Quick start (single binary):** Replace with the path to your ELF binary. Example (use the binary in this repo):
+
+```bash
+python analyze_binary.py firmware/latest_firmware.bin
+```
+
+Output is written to `firmware/report.md`.
 
 ## Workflow Description (CI)
 The pipeline performs the following key steps:
@@ -106,25 +121,33 @@ Your GitHub Actions workflow (`firmware_analysis.yml`) executes these tests auto
 
 ## Verification Steps
 
-### Visual and Functional Verification
+Run from the **repo root** (the directory containing `requirements-core.txt` and `run_smoke_test.py`). Use one command per line.
 
-After each push, perform:
+**Install core dependencies (no angr; works on macOS / Python 3.13):**
 
-1. **Visual Inspection**:
-   - Download the generated CFG images.
-   - Verify the accuracy and clarity of CFGs visually.
+```bash
+pip install -r requirements-core.txt
+```
 
-### Functional Verification:
-- Check the disassembly log (`firmware/disassembly.log`) for explicit infinite loop alerts:
-  - Infinite loop detected example:
-    ```
-    [ALERT] Potential infinite loops detected:
-      Loop 1: 0x1131
-    ```
-  - No loop detection:
-    ```
-    [INFO] No infinite loops detected.
-    ```
+**Run smoke test (report generation; GNN prep if pydot/torch available):**
+
+```bash
+python run_smoke_test.py
+```
+
+You should see: `OK: generate_report produced report with Optimization suggestions`. If pydot is missing, you will see `Skip prepare_gnn (missing deps): No module named 'pydot'` — that is optional.
+
+**Optional — full dependencies including angr (Linux or older Python; may fail on macOS + Python 3.13):**
+
+```bash
+pip install -r requirements.txt
+```
+
+Then run the smoke test again. With angr installed, you can pass `--angr` to the disassembler for VEX IR analysis; without angr, that path is skipped with a clear message.
+
+### Visual and functional checks (after CI or local analysis)
+
+- Inspect CFG images and `firmware/disassembly.log` for infinite loop alerts, e.g. `[ALERT] Potential infinite loops detected: Loop 1: 0x...` or `[INFO] No infinite loops detected.`
 
 ## Sample Results
 
@@ -143,15 +166,18 @@ After each push, perform:
 ## Troubleshooting
 
 - Ensure ELF binaries exist in the specified paths.
-- Ensure all dependencies (`angr`, `pydot`, `graphviz`) are correctly installed.
+- **Installation:** Prefer `pip install -r requirements-core.txt` on macOS or Python 3.13 to avoid angr/unicorn build failures. Use `requirements.txt` on Linux/CI when you need angr.
+- Ensure `pydot` and `graphviz` are available for CFG .dot output; install graphviz via your system package manager if needed.
 - Check GitHub Actions logs for detailed error information if the pipeline fails.
 - For GNN scripts: install `pip install -r requirements-gnn.txt`; ensure `joern_cfg_graphs` (or `GAT_DATA_DIR`) contains `.pt` graphs for training.
+- **Verify installation:** From the repo root, run `python run_smoke_test.py` after installing dependencies. Do not paste multiple commands on one line (e.g. avoid `pip install ... # comment` — pip treats `#` as a requirement).
 
 ## Roadmap / What's still optional
 
 - **GNN inference:** Run `train_gat_dataset.py` to produce `gat_model.pt` and `gat_label_map.json`; then `predict_complexity.py firmware/cfg.dot` or `--binary <path>` to get GNN complexity. Reports automatically include GNN complexity when the model is present.
 - **Configurable paths:** `convert_dot_to_pt.py`, `cfg2_to_pt.py`, and `joern_source_cfg_extractor.py` use env vars (`JOERN_CFG_ROOT`, `PT_OUTPUT_DIR`, `JOERN_DATA_ROOT`, etc.) with repo-relative defaults.
-- **FAT extension:** Optional improvements: handle missing `latest_firmware.bin`, add "Analyze selected binary" command, show report in webview.
+- **GNN training data:** Use `prepare_gnn_sample.py firmware/cfg.dot <label>` to add a `.pt` sample to `joern_cfg_graphs`; see [docs/GNN_TRAINING.md](docs/GNN_TRAINING.md) for building a full labeled dataset (Joern, multiple binaries, or minimal test set).
+- **FAT extension:** Handle missing `latest_firmware.bin`, "Analyze selected binary" command, show report in editor (all implemented).
 
 ---
 

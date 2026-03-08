@@ -19,14 +19,12 @@ Dependencies:
 import sys
 import os
 import string
-import angr
 import argparse
 import networkx as nx
 from elftools.elf.elffile import ELFFile
 from elftools.elf.constants import SH_FLAGS
 from elftools.elf.enums import ENUM_E_MACHINE
 from capstone import *
-from angr.errors import SimTranslationError, SimEngineError
 import networkx.drawing.nx_pydot as nx_pydot
 
 # Handle older Capstone versions lacking RISC-V modes
@@ -199,6 +197,12 @@ def extract_printable_strings(data, base_addr, min_len=4):
 
 ##### ANGR INTEGRATION #####
 def analyze_vex_ir_with_angr(binary_path):
+    try:
+        import angr
+        from angr.errors import SimTranslationError, SimEngineError
+    except ImportError:
+        log_message("[WARN] angr not installed. Skip with: pip install -r requirements-core.txt (angr is optional).")
+        return
     log_message("[ANGR] Loading binary with angr for IR analysis...")
     proj = angr.Project(binary_path, auto_load_libs=False)
 
