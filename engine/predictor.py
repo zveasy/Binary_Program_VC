@@ -39,7 +39,7 @@ class ComplexityPredictor:
             return
 
         import torch
-        from gat_model import GAT
+        from engine.models.gat import GAT
 
         checkpoint = torch.load(self.model_path, map_location="cpu")
         state_dict = checkpoint["state_dict"]

@@ -4,3 +4,5 @@ capstone==5.0.0
 networkx
 python-multipart
 pydot
+fastapi
+uvicorn

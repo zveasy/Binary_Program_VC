@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "complexai"
+version = "0.2.0"
+description = "Autonomous software reasoning agent powered by binary and graph analysis"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Zakariya Veasy"}]
+
+dependencies = [
+    "angr",
+    "pyelftools>=0.29",
+    "capstone>=5.0.0",
+    "networkx",
+    "python-multipart",
+    "pydot",
+    "fastapi",
+    "uvicorn",
+]
+
+[project.optional-dependencies]
+gnn = [
+    "torch",
+    "torch-geometric",
+    "scikit-learn",
+]
+dev = [
+    "pytest",
+    "httpx",
+]
+
+[project.scripts]
+complexai = "cli:main"
+
+[tool.setuptools.packages.find]
+include = ["engine*", "agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

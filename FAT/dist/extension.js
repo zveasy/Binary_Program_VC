@@ -44,49 +44,75 @@ exports.deactivate = deactivate;
 const vscode = __importStar(__webpack_require__(1));
 const child_process_1 = __webpack_require__(2);
 const path = __importStar(__webpack_require__(3));
+const fs = __importStar(__webpack_require__(4));
 function activate(context) {
-    console.log('Firmware Analysis Tool "FAT" is now active (auto-start).');
-    // 1) Immediately run analysis when the extension activates.
-    runAnalysisAndShowCFG();
+    console.log('Firmware Analysis Tool "FAT" is now active.');
+    context.subscriptions.push(vscode.commands.registerCommand('fat.analyzeFirmware', () => runAnalysisAndShowCFG()));
+    context.subscriptions.push(vscode.commands.registerCommand('fat.analyzeSelectedBinary', () => runAnalysisOnSelectedBinary()));
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        return;
+    }
+    const workspacePath = workspaceFolders[0].uri.fsPath;
+    const firmwarePath = path.join(workspacePath, 'firmware', 'latest_firmware.bin');
+    if (fs.existsSync(firmwarePath)) {
+        runAnalysisAndShowCFG();
+    }
+    else {
+        vscode.window.showInformationMessage('FAT: No firmware/latest_firmware.bin found. Use "Run Firmware Analysis" or "Analyze Selected Binary..." to pick a binary.');
+    }
 }
-async function runAnalysisAndShowCFG() {
+async function runAnalysisOnSelectedBinary() {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        vscode.window.showErrorMessage('No workspace folder open.');
+        return;
+    }
+    const picked = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        openLabel: 'Select binary to analyze',
+        filters: { 'Binaries': ['bin', 'elf', 'so'], 'All': ['*'] }
+    });
+    if (!picked || picked.length === 0) {
+        return;
+    }
+    await runAnalysisAndShowCFG(picked[0].fsPath);
+}
+async function runAnalysisAndShowCFG(binaryPath) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
         vscode.window.showErrorMessage('No workspace folder open.');
         return;
     }
     const workspacePath = workspaceFolders[0].uri.fsPath;
-    // Paths to your Python scripts and files
-    const scriptPath = path.join(workspacePath, 'rda_disassembler_enhanced.py');
-    const generateReportPath = path.join(workspacePath, 'generate_report.py');
-    const firmwarePath = path.join(workspacePath, 'firmware', 'latest_firmware.bin');
-    const logPath = path.join(workspacePath, 'firmware', 'disassembly.log');
-    const reportPath = path.join(workspacePath, 'firmware', 'report.md');
-    const cfgDotPath = path.join(workspacePath, 'firmware', 'cfg.dot');
-    const cfgPngPath = path.join(workspacePath, 'firmware', 'cfg.png');
-    // 2) Run the firmware analysis
+    const cliPath = path.join(workspacePath, 'cli.py');
+    const defaultFirmwarePath = path.join(workspacePath, 'firmware', 'latest_firmware.bin');
+    const firmwarePath = binaryPath || defaultFirmwarePath;
+    if (!fs.existsSync(firmwarePath)) {
+        vscode.window.showErrorMessage(`Binary not found: ${firmwarePath}. Use "Analyze Selected Binary..." to pick a file.`);
+        return;
+    }
+    const outputDir = path.join(workspacePath, 'firmware');
+    const reportPath = path.join(outputDir, 'audit_report.md');
+    const cfgDotPath = path.join(outputDir, 'cfg.dot');
+    const cfgPngPath = path.join(outputDir, 'cfg.png');
     vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: "Analyzing Firmware (auto-run)...",
+        title: 'CompLexAI: Analyzing Firmware...',
         cancellable: false
     }, async () => {
-        // (A) Disassembler
-        await runCommand(`python3 "${scriptPath}" "${firmwarePath}"`, workspacePath);
-        // (B) Possibly convert cfg.dot to cfg.png:
-        //     dot -Tpng cfg.dot -o cfg.png
-        // Only do this if you generate .dot automatically.
-        // Adjust path if 'dot' is not in your PATH or you need a full path.
-        await runCommand(`dot -Tpng "${cfgDotPath}" -o "${cfgPngPath}"`, workspacePath);
-        // (C) Generate report
-        await runCommand(`python3 "${generateReportPath}" "${logPath}" "${reportPath}"`, workspacePath);
-        vscode.window.showInformationMessage('Firmware analysis completed successfully (auto-run)!');
-        // 3) Show the CFG image in a webview
+        await runCommand(`python3 "${cliPath}" audit "${firmwarePath}" --output-dir "${outputDir}"`, workspacePath);
+        if (fs.existsSync(cfgDotPath)) {
+            await runCommand(`dot -Tpng "${cfgDotPath}" -o "${cfgPngPath}"`, workspacePath);
+        }
+        vscode.window.showInformationMessage('CompLexAI: Firmware audit completed!');
         showCFGWebview(cfgPngPath);
+        if (fs.existsSync(reportPath)) {
+            const doc = await vscode.workspace.openTextDocument(reportPath);
+            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+        }
     });
 }
-/**
- * Spawns a shell command & returns a Promise that resolves/fails on completion.
- */
 function runCommand(command, cwd) {
     return new Promise((resolve, reject) => {
         (0, child_process_1.exec)(command, { cwd }, (error, stdout, stderr) => {
@@ -100,19 +126,12 @@ function runCommand(command, cwd) {
         });
     });
 }
-/**
- * Opens a new webview panel and displays the CFG image.
- */
 function showCFGWebview(cfgPath) {
-    const panel = vscode.window.createWebviewPanel('firmwareCFG', // internal identifier
-    'Firmware Control Flow Graph', // title in the tab
-    vscode.ViewColumn.One, // show in the first editor column
-    {
-        enableScripts: true // if you need JS in the webview
-    });
-    // Convert local file path to a webview URI
+    if (!fs.existsSync(cfgPath)) {
+        return;
+    }
+    const panel = vscode.window.createWebviewPanel('firmwareCFG', 'Firmware Control Flow Graph', vscode.ViewColumn.One, { enableScripts: true });
     const cfgUri = panel.webview.asWebviewUri(vscode.Uri.file(cfgPath));
-    // Basic HTML that displays the PNG
     panel.webview.html = `
         <!DOCTYPE html>
         <html lang="en">
@@ -122,7 +141,7 @@ function showCFGWebview(cfgPath) {
         </head>
         <body>
             <h2>Control Flow Graph</h2>
-            <p>CFG generated automatically during analysis.</p>
+            <p>CFG generated during analysis.</p>
             <img src="${cfgUri}" />
         </body>
         </html>
@@ -150,6 +169,12 @@ module.exports = require("child_process");
 /***/ ((module) => {
 
 module.exports = require("path");
+
+/***/ }),
+/* 4 */
+/***/ ((module) => {
+
+module.exports = require("fs");
 
 /***/ })
 /******/ 	]);

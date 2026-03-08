@@ -52,8 +52,7 @@ async function runAnalysisAndShowCFG(binaryPath?: string) {
     }
 
     const workspacePath = workspaceFolders[0].uri.fsPath;
-    const scriptPath = path.join(workspacePath, 'rda_disassembler_enhanced.py');
-    const generateReportPath = path.join(workspacePath, 'generate_report.py');
+    const cliPath = path.join(workspacePath, 'cli.py');
     const defaultFirmwarePath = path.join(workspacePath, 'firmware', 'latest_firmware.bin');
     const firmwarePath = binaryPath || defaultFirmwarePath;
 
@@ -62,21 +61,22 @@ async function runAnalysisAndShowCFG(binaryPath?: string) {
         return;
     }
 
-    const logPath = path.join(workspacePath, 'firmware', 'disassembly.log');
-    const reportPath = path.join(workspacePath, 'firmware', 'report.md');
-    const cfgDotPath = path.join(workspacePath, 'firmware', 'cfg.dot');
-    const cfgPngPath = path.join(workspacePath, 'firmware', 'cfg.png');
+    const outputDir = path.join(workspacePath, 'firmware');
+    const reportPath = path.join(outputDir, 'audit_report.md');
+    const cfgDotPath = path.join(outputDir, 'cfg.dot');
+    const cfgPngPath = path.join(outputDir, 'cfg.png');
 
     vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: 'Analyzing Firmware...',
+        title: 'CompLexAI: Analyzing Firmware...',
         cancellable: false
     }, async () => {
-        await runCommand(`python3 "${scriptPath}" "${firmwarePath}"`, workspacePath);
-        await runCommand(`dot -Tpng "${cfgDotPath}" -o "${cfgPngPath}"`, workspacePath);
-        await runCommand(`python3 "${generateReportPath}" "${logPath}" "${reportPath}" "${cfgDotPath}"`, workspacePath);
+        await runCommand(`python3 "${cliPath}" audit "${firmwarePath}" --output-dir "${outputDir}"`, workspacePath);
+        if (fs.existsSync(cfgDotPath)) {
+            await runCommand(`dot -Tpng "${cfgDotPath}" -o "${cfgPngPath}"`, workspacePath);
+        }
 
-        vscode.window.showInformationMessage('Firmware analysis completed successfully!');
+        vscode.window.showInformationMessage('CompLexAI: Firmware audit completed!');
 
         showCFGWebview(cfgPngPath);
 

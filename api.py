@@ -1,62 +1,52 @@
 import os
-import sys
 import shutil
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
-import subprocess
 
+from engine.disassembler import DisassemblerEngine
 from agent.firmware_audit import FirmwareAuditAgent
 
-# Ensure the firmware directory exists
 FIRMWARE_DIR = "firmware"
 os.makedirs(FIRMWARE_DIR, exist_ok=True)
 
 app = FastAPI(
     title="CompLexAI",
     description="Autonomous software reasoning agent powered by binary and graph analysis.",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 # --------------------------------------------------------------------------
-# Original endpoints (backward-compatible)
+# Core endpoints (uses engine directly)
 # --------------------------------------------------------------------------
 
 @app.get("/")
 async def root():
-    return {"message": "CompLexAI API is working!", "version": "0.2.0"}
+    return {"message": "CompLexAI API is working!", "version": "0.3.0"}
 
 @app.post("/analyze")
 async def analyze_firmware(file: UploadFile = File(...)):
-    # Save the uploaded file
+    """Disassemble and analyze an uploaded firmware binary using the engine."""
     file_location = os.path.join(FIRMWARE_DIR, file.filename)
     with open(file_location, "wb") as f:
         f.write(file.file.read())
 
-    # Run the disassembler
-    result = subprocess.run(
-        [sys.executable, "rda_disassembler_enhanced.py", file_location], 
-        capture_output=True, text=True
-    )
+    engine = DisassemblerEngine(output_dir=FIRMWARE_DIR)
+    result = engine.analyze(file_location)
 
-    # Save output to a log file inside the container
-    DISASSEMBLY_LOG = os.path.join(FIRMWARE_DIR, "disassembly.log")
-
-    # Write disassembly results to the log file
-    with open(DISASSEMBLY_LOG, "w") as log_file:
-        log_file.write("=== Disassembly Results ===\n")
-        log_file.write(result.stdout if result.stdout else "No output from disassembler.\n")
-
-    # **Change Auto-Save Directory to `Binary_Program_VC`**
     AUTO_SAVE_DIR = "/app"
     os.makedirs(AUTO_SAVE_DIR, exist_ok=True)
+    if result.log_path:
+        shutil.copy(result.log_path, os.path.join(AUTO_SAVE_DIR, "disassembly_output.log"))
 
-    # Define the auto-save log file path
-    AUTO_SAVE_PATH = os.path.join(AUTO_SAVE_DIR, "disassembly_output.log")
-
-    # Save the disassembly output to the correct location
-    shutil.copy(DISASSEMBLY_LOG, AUTO_SAVE_PATH)
-
-    return {"status": "PASS", "message": "Disassembly complete!", "log_saved_to": AUTO_SAVE_PATH}
+    return {
+        "status": result.safety_verdict,
+        "message": "Disassembly complete!",
+        "architecture": result.architecture,
+        "complexity": result.complexity_heuristic,
+        "infinite_loops": len(result.infinite_loops),
+        "risk_score": round(result.risk_score, 3),
+        "log_saved_to": result.log_path,
+    }
 
 @app.get("/download")
 async def download_disassembly():
