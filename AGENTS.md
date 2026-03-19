@@ -18,6 +18,12 @@ See `README.md` for full details.
 |---|---|---|
 | FastAPI API | `source .venv/bin/activate && uvicorn api:app --host 0.0.0.0 --port 8000` | 8000 |
 
+### Production API (config and health)
+
+- **Health:** `GET /health` (liveness), `GET /ready` (readiness).
+- **Config (env):** `COMPLEXAI_MAX_UPLOAD_MB` (default 50), `COMPLEXAI_LOG_LEVEL`, `COMPLEXAI_FIRMWARE_DIR`, `COMPLEXAI_AUTO_SAVE_DIR`, `COMPLEXAI_AGENT_OUTPUT_DIR`, `COMPLEXAI_RATE_LIMIT` (e.g. `30/minute`), `COMPLEXAI_API_KEY` (optional; if set, requests must include `X-API-Key` header).
+- **Uploads:** Only ELF binaries accepted; filename is sanitized; max size enforced.
+
 ### Development environment
 
 - **Python 3.9** is required (`angr` is incompatible with Python 3.12). A virtualenv at `.venv` is created with `python3.9 -m venv .venv`.

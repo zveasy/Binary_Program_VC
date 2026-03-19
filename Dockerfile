@@ -22,7 +22,12 @@ COPY . .
 # Install Python dependencies, ensuring python-multipart is included
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
-    pip install fastapi uvicorn python-multipart  # ✅ Explicitly install python-multipart
+    pip install fastapi uvicorn python-multipart
+
+# Run as non-root
+RUN groupadd -r appuser && useradd -r -g appuser appuser && \
+    mkdir -p /app/firmware /app/agent_output && chown -R appuser:appuser /app
+USER appuser
 
 # Expose API port
 EXPOSE 8000

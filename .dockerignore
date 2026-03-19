@@ -1,0 +1,45 @@
+# Virtual env and local Python
+.venv
+venv
+__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+dist
+build
+
+# IDE and OS
+.idea
+.vscode
+*.swp
+.DS_Store
+
+# Git
+.git
+.gitignore
+
+# Tests and dev artifacts (optional: include if you run tests in image)
+# tests
+# pytest_cache
+# .pytest_cache
+
+# FAT VS Code extension (not needed for API server)
+FAT/node_modules
+FAT/out
+FAT/*.vsix
+
+# Docs and misc (reduce image size)
+docs
+*.md
+!README.md
+
+# Local firmware / outputs (recreate at runtime)
+firmware/*.bin
+firmware/*.log
+firmware/*.dot
+firmware/*.png
+agent_output
+
+# GNN data (large; mount or build separately if needed)
+joern_cfg_graphs
+*.pt
